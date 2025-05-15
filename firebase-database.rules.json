@@ -1,0 +1,11 @@
+{
+  "rules": {
+    ".read": "auth !== null",
+    ".write": "auth !== null",
+    "chatMessages": {
+      ".indexOn": ["requestId"],
+      ".read": true,
+      ".write": true
+    }
+  }
+}

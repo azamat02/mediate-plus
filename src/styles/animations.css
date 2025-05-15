@@ -1,0 +1,176 @@
+/* Анимации для минималистичного дизайна */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-slow {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.7;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+
+@keyframes borderPulse {
+  0% {
+    border-color: rgba(99, 102, 241, 0.4);
+  }
+  50% {
+    border-color: rgba(99, 102, 241, 0.8);
+  }
+  100% {
+    border-color: rgba(99, 102, 241, 0.4);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
+.animate-fadeInLeft {
+  animation: fadeInLeft 0.5s ease-out forwards;
+}
+
+.animate-fadeInRight {
+  animation: fadeInRight 0.5s ease-out forwards;
+}
+
+.animate-scaleIn {
+  animation: scaleIn 0.6s ease-out forwards;
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-borderPulse {
+  animation: borderPulse 2s infinite;
+}
+
+/* Дополнительные стили для темной темы */
+.dark .text-primary-600 {
+  color: #818cf8;
+}
+
+.dark .text-primary-400 {
+  color: #a5b4fc;
+}
+
+.dark .bg-primary-700 {
+  background-color: #4338ca;
+}
+
+.dark .bg-primary-800 {
+  background-color: #3730a3;
+}
+
+.dark .bg-primary-900 {
+  background-color: #312e81;
+}
+
+/* Улучшенные стили для форм */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.dark input:focus, .dark textarea:focus, .dark select:focus {
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.3);
+}
+
+/* Стили для кнопок с градиентом */
+.btn-gradient {
+  background-image: linear-gradient(to right, #4f46e5, #4338ca);
+  transition: all 0.3s ease;
+}
+
+.btn-gradient:hover {
+  background-image: linear-gradient(to right, #4338ca, #3730a3);
+  transform: translateY(-1px);
+}
+
+.btn-gradient:active {
+  transform: translateY(1px);
+}
