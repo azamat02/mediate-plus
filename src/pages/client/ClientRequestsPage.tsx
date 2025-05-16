@@ -3,39 +3,47 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useClientAuthStore } from '../../store/clientAuthStore';
 import { PlusCircle, ChevronRight, Clock, Building } from 'lucide-react';
+import { ClientRequestService, ClientRequest } from '../../services/clientRequestService';
+import { Spinner } from '../../components/ui/Spinner';
 
-interface Request {
-  id: string;
-  phone_number: string;
-  reason_type: string;
-  reason: string;
-  status: string;
-  created_at: string;
-  mfo_name?: string;
-  organization_type?: 'bvu' | 'mfo';
-}
+// Используем тип ClientRequest из сервиса
 
 export const ClientRequestsPage: React.FC = () => {
-  const [requests, setRequests] = useState<Request[]>([]);
+  const [requests, setRequests] = useState<ClientRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<string>('all'); // Добавляем состояние для вкладок
+  const [activeTab, setActiveTab] = useState<string>('all'); // Состояние для вкладок
+  const [errorMessage, setError] = useState<string | null>(null);
   const { phoneNumber } = useClientAuthStore();
   const navigate = useNavigate();
 
   useEffect(() => {
-    // В реальном приложении здесь был бы запрос к API
-    // Для демо используем localStorage
-    try {
-      const storedRequests = JSON.parse(localStorage.getItem('clientRequests') || '[]');
-      const userRequests = storedRequests.filter(
-        (req: Request) => req.phone_number === phoneNumber
-      );
-      setRequests(userRequests);
-    } catch (e) {
-      console.error('Failed to load requests:', e);
-    } finally {
-      setLoading(false);
-    }
+    const loadRequests = async () => {
+      if (!phoneNumber) {
+        setLoading(false);
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        
+        // Выполняем миграцию данных из localStorage, если это не было сделано
+        await ClientRequestService.migrateLocalStorageForPhone(phoneNumber);
+        
+        // Загружаем обращения из Firebase
+        const userRequests = await ClientRequestService.getRequestsByPhone(phoneNumber);
+        console.log('Loaded requests from Firebase:', userRequests);
+        
+        setRequests(userRequests);
+        setError(null);
+      } catch (error) {
+        console.error('Failed to load requests:', error);
+        setError('Не удалось загрузить ваши обращения. Пожалуйста, попробуйте позже.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadRequests();
   }, [phoneNumber]);
 
   const getStatusBadge = (status: string) => {
@@ -58,6 +66,28 @@ export const ClientRequestsPage: React.FC = () => {
         icon: (
           <svg className="h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+          </svg>
+        )
+      },
+      document_sent: { 
+        color: 'text-indigo-800 dark:text-indigo-300', 
+        bgColor: 'bg-indigo-100 dark:bg-indigo-900', 
+        label: 'Документ отправлен',
+        icon: (
+          <svg className="h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M8.707 7.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l2-2a1 1 0 00-1.414-1.414L11 7.586V3a1 1 0 10-2 0v4.586l-.293-.293z" />
+            <path d="M3 5a2 2 0 012-2h1a1 1 0 010 2H5v7h2l1 2h4l1-2h2V5h-1a1 1 0 110-2h1a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V5z" />
+          </svg>
+        )
+      },
+      document_viewed: { 
+        color: 'text-purple-800 dark:text-purple-300', 
+        bgColor: 'bg-purple-100 dark:bg-purple-900', 
+        label: 'Документ просмотрен',
+        icon: (
+          <svg className="h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+            <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
           </svg>
         )
       },
@@ -449,60 +479,103 @@ export const ClientRequestsPage: React.FC = () => {
             exit="exit"
             className="space-y-4"
           >
-          {filteredRequests.map((request) => (
-            <motion.div 
-              key={request.id}
-              variants={itemVariants}
-              whileHover="hover"
-              whileTap="tap"
-              initial="hidden"
-              animate="visible"
-              exit="exit"
-              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden cursor-pointer"
-              onClick={() => navigate(`/client/dashboard/requests/${request.id}`)}
-            >
-              <div className="p-6">
-                <div className="flex justify-between items-start gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300">
-                        Запрос #{request.id.substring(0, 6)}
-                      </span>
-                      {getStatusBadge(request.status)}
-                    </div>
-                    
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">{request.reason_type}</h3>
-                    
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
-                      <div className="flex items-center text-gray-500 dark:text-gray-400">
-                        <Clock size={16} className="mr-1.5" />
-                        {formatDate(request.created_at)}
+          {loading ? (
+            <div className="flex justify-center items-center h-64">
+              <Spinner size="lg" />
+              <span className="ml-3 text-gray-600 dark:text-gray-400">Загрузка обращений...</span>
+            </div>
+          ) : filteredRequests.length === 0 ? (
+            <div className="text-center py-12 px-4">
+              <svg
+                className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-600"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
+              </svg>
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">Обращений не найдено</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Создайте новое обращение, чтобы начать работу с сервисом.  
+              </p>
+            </div>
+          ) : (
+            filteredRequests.map((request) => (
+              <motion.div 
+                key={request.id}
+                variants={itemVariants}
+                whileHover="hover"
+                whileTap="tap"
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden cursor-pointer"
+                onClick={() => navigate(`/client/dashboard/requests/${request.id}`)}
+              >
+                <div className="p-6">
+                  <div className="flex justify-between items-start gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300">
+                          Запрос #{request.id.substring(0, 6)}
+                        </span>
+                        {getStatusBadge(request.status)}
                       </div>
                       
-                      {request.mfo_name && (
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">{request.reason_type}</h3>
+                      
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
                         <div className="flex items-center text-gray-500 dark:text-gray-400">
-                          <Building size={16} className="mr-1.5" />
-                          <span className="mr-1.5">{request.mfo_name}</span>
-                          {request.organization_type && (
-                            <span className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full">
-                              {request.organization_type === 'bvu' ? 'БВУ' : 'МФО'}
-                            </span>
-                          )}
+                          <Clock size={16} className="mr-1.5" />
+                          {formatDate(request.created_at)}
                         </div>
-                      )}
+                        
+                        {request.mfo_name && (
+                          <div className="flex items-center text-gray-500 dark:text-gray-400">
+                            <Building size={16} className="mr-1.5" />
+                            <span className="mr-1.5">{request.mfo_name}</span>
+                            {request.organization_type && (
+                              <span className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full">
+                                {request.organization_type === 'bvu' ? 'БВУ' : 'МФО'}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-              
-              <div className="bg-gray-50 dark:bg-gray-700/50 px-6 py-3 flex justify-between items-center border-t border-gray-100 dark:border-gray-700">
-                <span className="text-sm text-gray-500 dark:text-gray-400">Нажмите, чтобы просмотреть подробности</span>
-                <ChevronRight size={18} className="text-gray-400" />
-              </div>
-            </motion.div>
-          ))}
-          </motion.div>
+                
+                <div className="bg-gray-50 dark:bg-gray-700/50 px-6 py-3 flex justify-between items-center border-t border-gray-100 dark:border-gray-700">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Нажмите, чтобы просмотреть подробности</span>
+                  <ChevronRight size={18} className="text-gray-400" />
+                </div>
+              </motion.div>
+            ))
+          )}</motion.div>
         </AnimatePresence>
+      )}
+
+      {/* Показать сообщение об ошибке, если есть */}
+      {errorMessage && (
+        <div className="mt-4 p-4 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-red-700 dark:text-red-200">{errorMessage}</p>
+            </div>
+          </div>
+        </div>
       )}
     </motion.div>
   );

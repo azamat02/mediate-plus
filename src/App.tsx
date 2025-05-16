@@ -1,4 +1,4 @@
-import React, { useEffect, Suspense } from 'react';
+import React, { useEffect, Suspense, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { LoginPage } from './pages/auth/LoginPage';
@@ -23,17 +23,58 @@ import { TermsPage } from './pages/client/TermsPage';
 import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
 import { useClientAuthStore } from './store/clientAuthStore';
+import { Spinner } from './components/ui/Spinner';
 // Импорт DebugPage удален, так как он больше не используется
 
+// Компонент для защищенных маршрутов админа
+const ProtectedAdminRoute = ({ children }: { children: React.ReactNode }) => {
+  const { session, loading } = useAuthStore();
+  
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-primary-900">
+        <Spinner size="lg" className="border-accent-500" />
+      </div>
+    );
+  }
+  
+  // Если пользователь не авторизован, перенаправляем на страницу входа
+  if (!session) {
+    return <Navigate to="/admin/login" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+// Компонент для защищенных маршрутов клиента
+const ProtectedClientRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated } = useClientAuthStore();
+  
+  // Добавляем анимацию перехода
+  return isAuthenticated ? (
+    <Suspense fallback={<div className="flex items-center justify-center h-screen">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+    </div>}>
+      {children}
+    </Suspense>
+  ) : <Navigate to="/client/auth" replace />;
+};
+
 function App() {
-  const { initialize } = useAuthStore();
+  const { initialize, session } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
-  const { isAuthenticated, loadState } = useClientAuthStore();
+  const { loadState } = useClientAuthStore();
+  const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    initialize();
-    // Загружаем состояние аутентификации клиента при запуске приложения
-    loadState();
+    const init = async () => {
+      await initialize();
+      // Загружаем состояние аутентификации клиента при запуске приложения
+      await loadState();
+      setInitializing(false);
+    };
+    
+    init();
   }, [initialize, loadState]);
 
   useEffect(() => {
@@ -43,17 +84,14 @@ function App() {
     document.documentElement.classList.add('transition-colors', 'duration-300');
   }, [theme, setTheme]);
   
-  // Компонент для защищенных маршрутов клиентского кабинета с улучшенной обработкой
-  const ProtectedClientRoute = ({ children }: { children: React.ReactNode }) => {
-    // Добавляем анимацию перехода
-    return isAuthenticated ? (
-      <Suspense fallback={<div className="flex items-center justify-center h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
-      </div>}>
-        {children}
-      </Suspense>
-    ) : <Navigate to="/client/auth" replace />;
-  };
+  // Показываем индикатор загрузки, пока инициализируемся
+  if (initializing) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-primary-900">
+        <Spinner size="lg" className="border-accent-500" />
+      </div>
+    );
+  }
 
   return (
     <Router>
@@ -78,16 +116,26 @@ function App() {
             <Route index element={<Navigate to="/client/dashboard/requests" replace />} />
             <Route path="requests" element={<ClientRequestsPage />} />
             <Route path="requests/:requestId" element={<RequestDetailPage />} />
-            <Route path="documents/:requestId/:documentId" element={<ViewDocumentPage />} />
+            <Route path="document/:requestId" element={<ViewDocumentPage />} />
             <Route path="new-request" element={<NewRequestPage />} />
             <Route path="profile" element={<ClientProfilePage />} />
           </Route>
           
           {/* Admin routes */}
-          <Route path="/admin" element={<Navigate to="/admin/login" replace />} />
-          <Route path="/admin/login" element={<LoginPage />} />
+          <Route path="/admin" element={
+            session ? <Navigate to="/dashboard" replace /> : <Navigate to="/admin/login" replace />
+          } />
           
-          <Route path="/dashboard" element={<DashboardLayout />}>
+          <Route path="/admin/login" element={
+            session ? <Navigate to="/dashboard" replace /> : <LoginPage />
+          } />
+          
+          {/* Все маршруты дашборда защищены */}
+          <Route path="/dashboard" element={
+            <ProtectedAdminRoute>
+              <DashboardLayout />
+            </ProtectedAdminRoute>
+          }>
             <Route index element={<HomePage />} />
             <Route path="mediations" element={<MediationsPage />} />
             <Route path="partners" element={<PartnersPage />} />

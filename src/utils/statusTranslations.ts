@@ -24,6 +24,8 @@ export const getStatusLabel = (status: string): string => {
       return 'Документ просмотрен';
     case 'document_signed':
       return 'Документ подписан';
+    case 'new_schedule':
+      return 'Новый график';
     
     default:
       return status;

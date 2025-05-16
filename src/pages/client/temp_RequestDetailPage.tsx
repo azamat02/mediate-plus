@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { FileText, CheckCircle, Clock, Send, Eye, MessageSquare, AlertCircle } from 'lucide-react';
+import { FileText, CheckCircle, Clock, Send, Eye } from 'lucide-react';
 import { RequestChat } from '../../components/client/RequestChat';
 import { Spinner } from '../../components/ui/Spinner';
+import { mobizonApi } from '../../lib/mobizon';
 import { getStatusLabel, getStatusColor } from '../../utils/statusTranslations';
 import { ClientRequestService, ClientRequest } from '../../services/clientRequestService';
-import { PaymentScheduleDocument } from '../../components/documents/PaymentScheduleDocument';
+import { ChatService } from '../../services/chatService';
 
 export const RequestDetailPage: React.FC = () => {
   const { requestId } = useParams<{ requestId: string }>();
@@ -15,6 +16,9 @@ export const RequestDetailPage: React.FC = () => {
   const [request, setRequest] = useState<ClientRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editedReason, setEditedReason] = useState('');
   const [activeTab, setActiveTab] = useState<'info' | 'chat' | 'document'>('info');
   const [showSignModal, setShowSignModal] = useState(false);
   const [otpCode, setOtpCode] = useState('');
@@ -119,6 +123,37 @@ export const RequestDetailPage: React.FC = () => {
     return { icon, color: statusColor, label: statusLabel };
   };
   
+  // Обработчик удаления обращения
+  const handleDelete = async () => {
+    // Для этого примера мы просто перенаправляем пользователя назад
+    // В реальном приложении здесь был бы запрос к API для удаления
+    setShowDeleteModal(false);
+    navigate('/client/dashboard/requests');
+  };
+  
+  // Обработчик редактирования обращения
+  const handleEdit = async () => {
+    if (!request || !editedReason.trim()) return;
+    
+    try {
+      // В реальном приложении здесь был бы запрос к API
+      // Для демо используем console.log
+      console.log('Edited reason:', editedReason);
+      
+      // Обновляем состояние
+      setRequest({
+        ...request,
+        reason: editedReason
+      });
+      
+      // Закрываем модальное окно
+      setShowEditModal(false);
+      
+    } catch (error) {
+      console.error('Error editing request:', error);
+    }
+  };
+  
   // Отправка ОТП-кода для подписания документа
   const sendOtp = async () => {
     if (!request) return;
@@ -196,44 +231,28 @@ export const RequestDetailPage: React.FC = () => {
   
   // Получение названия типа документа
   const getDocumentTypeName = (documentType?: string) => {
-    switch (documentType) {
-      case 'payment_schedule':
-        return 'График платежей';
-      case 'contract':
-        return 'Договор';
-      case 'agreement':
-        return 'Соглашение';
-      case 'offer':
-        return 'Оферта';
-      case 'new_schedule':
-        return 'Новый график платежей';
-      default:
-        return 'Документ';
-    }
+    if (!documentType) return 'Неизвестный документ';
+    
+    const documentTypes: Record<string, string> = {
+      'loan_restructuring': 'Договор о реструктуризации займа',
+      'payment_delay': 'Соглашение об отсрочке платежа',
+      'debt_dispute': 'Акт сверки задолженности',
+      'interest_rate': 'Дополнительное соглашение о снижении ставки',
+      'new_schedule': 'Новый график платежей',
+      'early_repayment': 'Соглашение о досрочном погашении',
+      'general': 'Типовой договор'
+    };
+    
+    return documentTypes[documentType] || 'Неизвестный документ';
   };
   
-  // Обработчик просмотра документов
-  const handleViewDocument = async () => {
-    try {
-      if (!requestId) return;
-      
-      // Отмечаем документ как просмотренный в Firebase
-      await ClientRequestService.markDocumentAsViewed(requestId);
-      
-      // Обновляем локальный объект request
-      if (request) {
-        setRequest({
-          ...request,
-          document_viewed_at: new Date().toISOString(),
-          status: 'document_viewed'
-        });
-      }
-      
-      // Переходим на отдельную страницу с документом
-      navigate(`/client/dashboard/document/${requestId}`);
-    } catch (error) {
-      console.error('Error marking document as viewed:', error);
-    }
+  // Обработчик просмотра документа
+  const handleViewDocument = () => {
+    if (!request || !request.document_sent_at) return;
+    
+    // В реальном приложении перенаправляли бы на страницу с документом
+    // Для демо просто перенаправляем на страницу просмотра документа
+    navigate(`/client/dashboard/documents/${request.id}/1`);
   };
   
   if (loading) {
@@ -357,7 +376,9 @@ export const RequestDetailPage: React.FC = () => {
         {activeTab === 'chat' && (
           <div>
             <RequestChat
-              requestId={requestId || ''}
+              requestId={request.id}
+              initialMessages={request.messages || []}
+              currentUserType="client"
             />
           </div>
         )}
@@ -420,56 +441,7 @@ export const RequestDetailPage: React.FC = () => {
         )}
       </div>
       
-      {/* Вкладка с документом */}
-      <div className={`${activeTab === 'document' ? 'block' : 'hidden'} p-4`}>
-        {request.document_sent_at ? (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 flex justify-center">
-            {/* Показываем моковый документ в зависимости от типа */}
-            {request.document_type === 'payment_schedule' && (
-              <PaymentScheduleDocument
-                clientName={`${request?.phone_number || 'Клиент'}`}
-                contractNumber={`КЗ-${String(request.id).slice(-5)}`}
-                contractDate={request.document_sent_at || new Date().toISOString()}
-                loanAmount={500000}
-                interestRate={12}
-                term={12}
-                startDate={request.document_sent_at || new Date().toISOString()}
-                endDate={new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString()}
-                payments={[
-                  // Генерация моковых платежей
-                  ...Array.from({ length: 12 }, (_, i) => ({
-                    paymentNumber: i + 1,
-                    paymentDate: new Date(new Date().setMonth(new Date().getMonth() + i + 1)).toISOString(),
-                    totalPayment: 44166.67,
-                    principalPayment: 41666.67,
-                    interestPayment: 2500 - (i * 208),
-                    remainingBalance: 500000 - ((i + 1) * 41666.67)
-                  }))
-                ]}
-              />
-            )}
-            
-            {/* Для других типов документов можно добавить другие моковые компоненты */}
-            {request.document_type !== 'payment_schedule' && (
-              <div className="w-full h-[70vh] flex items-center justify-center border border-gray-300 p-4">
-                <div className="text-center">
-                  <FileText size={64} className="mx-auto mb-4 text-gray-500" />
-                  <h3 className="text-lg font-medium">Документ: {getDocumentTypeName(request.document_type)}</h3>
-                  <p className="text-gray-600">Документ отправлен администратором {formatDate(request.document_sent_at || '')}</p>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="p-8 text-center">
-            <p className="text-gray-600 dark:text-gray-400 italic">
-              В данный момент документы не отправлены администратором.
-            </p>
-          </div>
-        )}
-      </div>
-      
-      {/* Модальное окно для подписания документов */}
+      {/* Модальное окно для подписания документа */}
       {showSignModal && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center">
@@ -482,7 +454,7 @@ export const RequestDetailPage: React.FC = () => {
                 <div className="sm:flex sm:items-start">
                   <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
                     <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">
-                      Подписание документов
+                      Подписание документа
                     </h3>
                     
                     {signSuccess ? (
@@ -495,7 +467,7 @@ export const RequestDetailPage: React.FC = () => {
                     ) : (
                       <div className="mt-2">
                         <p className="text-sm text-gray-500 dark:text-gray-400">
-                          Для подписания документов необходимо ввести код подтверждения, который будет отправлен на ваш номер телефона.
+                          Для подписания документа необходимо ввести код подтверждения, который будет отправлен на ваш номер телефона.
                         </p>
                         
                         {!otpSent ? (

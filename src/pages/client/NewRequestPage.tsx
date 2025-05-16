@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useClientAuthStore } from '../../store/clientAuthStore';
-import { nanoid } from 'nanoid';
+import { ClientRequestService } from '../../services/clientRequestService';
 
 // Список МФО и БВУ для выбора (в реальном приложении это должно приходить с бэкенда)
 const BANKS_LIST = [
@@ -186,35 +186,42 @@ export const NewRequestPage: React.FC = () => {
       setLoading(true);
       
       try {
-        // Создаем уникальный ID для обращения
-        const requestId = nanoid();
-        
         // Получаем имя организации по ID
         const organization = BANKS_LIST.find(bank => bank.id === selectedMfo);
-        const typeName = REQUEST_TYPES.find(type => type.id === selectedType)?.name || '';
         
         // Создаем объект обращения
         const newRequest = {
-          id: requestId,
           phone_number: phoneNumber,
           iin: iin,
           mfo_id: selectedMfo,
           mfo_name: organization?.name || '',
-          organization_type: orgType,
-          reason_type: typeName,
+          organization_type: orgType === '' ? undefined : orgType as 'bvu' | 'mfo',
+          reason_type: selectedType, // Используем ID типа обращения
           reason: description,
           status: 'new',
           created_at: new Date().toISOString()
         };
         
-        // В реальном приложении здесь был бы запрос к API
-        // Для демо используем localStorage
-        const storedRequests = JSON.parse(localStorage.getItem('clientRequests') || '[]');
-        storedRequests.push(newRequest);
-        localStorage.setItem('clientRequests', JSON.stringify(storedRequests));
+        // Сохраняем запрос в Firebase
+        console.log('Отправка запроса в Firebase:', newRequest);
+        const requestId = await ClientRequestService.createRequest(newRequest);
         
-        // Перенаправляем на страницу с обращениями
-        navigate('/client/dashboard/requests');
+        if (requestId) {
+          console.log('Запрос успешно создан с ID:', requestId);
+          
+          // Также сохраняем в localStorage для совместимости с существующим кодом
+          const storedRequests = JSON.parse(localStorage.getItem('clientRequests') || '[]');
+          storedRequests.push({
+            ...newRequest,
+            id: requestId
+          });
+          localStorage.setItem('clientRequests', JSON.stringify(storedRequests));
+          
+          // Перенаправляем на страницу с обращениями
+          navigate('/client/dashboard/requests');
+        } else {
+          throw new Error('Не удалось создать запрос в базе данных');
+        }
       } catch (error) {
         console.error('Error creating request:', error);
         setErrors({

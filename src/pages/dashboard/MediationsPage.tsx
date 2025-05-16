@@ -1,35 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, Eye, FileCheck, Mail, Clock, Plus, AlertCircle, X, MessageSquare, Send } from 'lucide-react';
+import { Search, Filter, Eye, FileCheck, Mail, Clock, Plus, AlertCircle, X, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { useClientsStore } from '../../store/clientsStore';
 import { getStatusLabel } from '../../utils/statusTranslations';
 import { AddClientModal } from '../../components/clients/AddClientModal';
 import { Spinner } from '../../components/ui/Spinner';
-import { Client } from '../../types';
 import { RequestDetailModal } from '../../components/requests/RequestDetailModal';
-import { ChatService, ChatMessage } from '../../services/chatService';
+import { ChatService } from '../../services/chatService';
+import { RequestService, ClientRequest } from '../../services/requestService';
 
-// Интерфейс для обращений клиентов
-interface ClientRequest {
-  id: string;
-  phone_number: string;
-  iin?: string;
-  reason_type: string;
-  reason: string;
-  status: string;
-  created_at: string;
-  mfo_name?: string;
-  mfo_id?: string;
-  organization_type?: 'bvu' | 'mfo';
-  document_sent_at?: string;
-  document_type?: string;
-  document_signed_at?: string;
-  messages?: ChatMessage[];
-}
+// Используем тип ClientRequest из RequestService
 
 export const MediationsPage: React.FC = () => {
-  const { clients, loading, initialize, error } = useClientsStore();
+  const { clients, initialize, error } = useClientsStore();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -47,14 +31,26 @@ export const MediationsPage: React.FC = () => {
       // Загружаем клиентов
       await initialize();
       
-      // Загружаем обращения клиентов из localStorage
+      // Проверяем, есть ли данные в localStorage для миграции
+      try {
+        const storedRequests = JSON.parse(localStorage.getItem('clientRequests') || '[]');
+        if (storedRequests.length > 0) {
+          // Если есть данные в localStorage, мигрируем их в Firebase
+          setRequestsLoading(true);
+          await RequestService.migrateFromLocalStorage();
+        }
+      } catch (error) {
+        console.error('Error checking localStorage for migration:', error);
+      }
+      
+      // Загружаем обращения клиентов из Firebase
       try {
         setRequestsLoading(true);
-        const storedRequests = JSON.parse(localStorage.getItem('clientRequests') || '[]');
+        const firebaseRequests = await RequestService.getAllRequests();
         
         // Загружаем сообщения для каждого запроса из Firebase Realtime Database
         const requestsWithMessages = await Promise.all(
-          storedRequests.map(async (request: ClientRequest) => {
+          firebaseRequests.map(async (request: ClientRequest) => {
             try {
               const messages = await ChatService.getMessages(request.id);
               return { ...request, messages };
@@ -67,7 +63,7 @@ export const MediationsPage: React.FC = () => {
         
         setClientRequests(requestsWithMessages);
       } catch (error) {
-        console.error('Failed to load client requests:', error);
+        console.error('Failed to load client requests from Firebase:', error);
       } finally {
         setRequestsLoading(false);
       }
@@ -76,6 +72,18 @@ export const MediationsPage: React.FC = () => {
     };
     
     loadData();
+    
+    // Настраиваем подписку на обновления запросов в реальном времени
+    // Эта часть закомментирована, так как onSnapshot требует дополнительной настройки
+    /*
+    const unsubscribe = RequestService.subscribeToRequests((requests) => {
+      setClientRequests(requests);
+    });
+    
+    return () => {
+      unsubscribe();
+    };
+    */
   }, [initialize]);
 
   // Фильтрация клиентов по поисковому запросу
@@ -106,13 +114,20 @@ export const MediationsPage: React.FC = () => {
   };
   
   // Обработчик отправки документа клиенту
-  const handleSendDocument = async (requestId: string, documentType: string) => {
+  const handleSendDocument = async (requestId: string, documentType: string): Promise<void> => {
     try {
-      // Находим запрос по ID
+      // Обновляем статус запроса в Firebase
+      const success = await RequestService.sendDocument(requestId, documentType);
+      
+      if (!success) {
+        throw new Error('Failed to update request status');
+      }
+      
+      // Находим запрос по ID и обновляем локальное состояние
       const requestIndex = clientRequests.findIndex(req => req.id === requestId);
       if (requestIndex === -1) return;
       
-      // Обновляем статус запроса
+      // Обновляем локальный массив запросов
       const updatedRequests = [...clientRequests];
       const now = new Date().toISOString();
       
@@ -123,25 +138,64 @@ export const MediationsPage: React.FC = () => {
         document_type: documentType
       };
       
-      // Сохраняем обновленные запросы в localStorage
-      localStorage.setItem('clientRequests', JSON.stringify(updatedRequests));
       setClientRequests(updatedRequests);
       
       // Отправляем уведомление о документе в чат
-      const documentTypeText = updatedRequests[requestIndex].document_type;
+      const documentTypeText = documentType;
       await ChatService.sendMessage(
         requestId,
         'mediator',
         `Отправлен документ: ${documentTypeText}`
       );
-      
-      return true;
     } catch (error) {
       console.error('Error sending document:', error);
-      return false;
     }
   };
   
+  // Подписка на обновления сообщений чата для конкретного запроса
+  const [messageSubscription, setMessageSubscription] = useState<(() => void) | null>(null);
+
+  // Функция для подписки на сообщения
+  const subscribeToMessagesForRequest = (requestId: string) => {
+    // Отписываемся от предыдущей подписки, если она существует
+    if (messageSubscription) {
+      messageSubscription();
+    }
+    
+    // Создаем новую подписку
+    const unsubscribe = ChatService.subscribeToMessages(requestId, (messages) => {
+      console.log(`Получены обновления сообщений для запроса ${requestId}:`, messages);
+      
+      // Обновляем сообщения в состоянии
+      const requestIndex = clientRequests.findIndex(req => req.id === requestId);
+      if (requestIndex !== -1) {
+        const updatedRequests = [...clientRequests];
+        updatedRequests[requestIndex] = {
+          ...updatedRequests[requestIndex],
+          messages: messages
+        };
+        setClientRequests(updatedRequests);
+        
+        // Если модальное окно открыто и selectedRequest === requestId, также обновляем его
+        if (isDetailModalOpen && selectedRequest?.id === requestId) {
+          setSelectedRequest(updatedRequests[requestIndex]);
+        }
+      }
+    });
+    
+    // Сохраняем функцию отписки
+    setMessageSubscription(() => unsubscribe);
+  };
+  
+  // При размонтировании компонента - отписываемся от всех подписок
+  useEffect(() => {
+    return () => {
+      if (messageSubscription) {
+        messageSubscription();
+      }
+    };
+  }, [messageSubscription]);
+
   // Обработчик отправки сообщения в чат
   const handleSendMessage = async (requestId: string, text: string) => {
     try {
@@ -149,15 +203,12 @@ export const MediationsPage: React.FC = () => {
       const message = await ChatService.sendMessage(requestId, 'mediator', text);
       
       if (message) {
-        // Обновляем сообщения в состоянии
+        // Обновляем статус запроса на "in_progress", если он был "new"
         const requestIndex = clientRequests.findIndex(req => req.id === requestId);
-        if (requestIndex !== -1) {
+        if (requestIndex !== -1 && clientRequests[requestIndex].status === 'new') {
+          await RequestService.updateRequestStatus(requestId, 'in_progress');
           const updatedRequests = [...clientRequests];
-          if (!updatedRequests[requestIndex].messages) {
-            updatedRequests[requestIndex].messages = [];
-          }
-          
-          updatedRequests[requestIndex].messages?.push(message);
+          updatedRequests[requestIndex].status = 'in_progress';
           setClientRequests(updatedRequests);
         }
       }
@@ -573,8 +624,11 @@ export const MediationsPage: React.FC = () => {
                           <button 
                             className="text-primary-600 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-300"
                             onClick={() => {
+                              // Устанавливаем выбранный запрос и открываем модальное окно
                               setSelectedRequest(request);
                               setIsDetailModalOpen(true);
+                              // Подписываемся на обновления сообщений для этого запроса
+                              subscribeToMessagesForRequest(request.id);
                             }}
                           >
                             Просмотр
@@ -648,7 +702,15 @@ export const MediationsPage: React.FC = () => {
       
       <RequestDetailModal
         isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
+        onClose={() => {
+          // Закрываем модальное окно
+          setIsDetailModalOpen(false);
+          
+          // Отписываемся от обновлений сообщений
+          if (messageSubscription) {
+            messageSubscription();
+          }
+        }}
         request={selectedRequest}
         onSendDocument={handleSendDocument}
         onSendMessage={handleSendMessage}
