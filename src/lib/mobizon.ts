@@ -57,18 +57,15 @@ export class MobizonApi {
         formattedRecipient = '7' + formattedRecipient;
       }
       
-      // Проверка на минимальную длину номера (должен быть не менее 10 цифр)
-      if (formattedRecipient.length < 10) {
-        console.error(`[Mobizon] Ошибка: номер телефона слишком короткий: ${formattedRecipient}`);
+      // Проверка на корректность казахстанского номера (должен быть 11 цифр и начинаться с 7)
+      if (!formattedRecipient.startsWith('7') || formattedRecipient.length !== 11) {
+        console.error(`[Mobizon] Ошибка: неверный формат номера телефона: ${formattedRecipient}. Ожидается 11 цифр, начинающихся с 7`);
         return false;
       }
-      
-      // Если номер не начинается с '+', добавляем его для международного формата
-      if (!formattedRecipient.startsWith('+')) {
-        formattedRecipient = '+' + formattedRecipient;
-      }
+
       
       console.log(`[Mobizon] Исходный номер: ${recipient}, отформатированный: ${formattedRecipient}`);
+      console.log(`[Mobizon] Финальный формат номера: ${formattedRecipient} (только цифры, как требует документация)`);
       
       // Формируем URL для запроса
       const url = `${this.baseUrl}/message/sendSmsMessage`;
