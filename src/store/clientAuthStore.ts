@@ -1,12 +1,7 @@
 import { create } from 'zustand';
-import { auth, firestore } from '../lib/firebase';
-import {
-  signOut as firebaseSignOut,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  ConfirmationResult
-} from 'firebase/auth';
+import { firestore } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { SmsService } from '../services/smsService';
 
 interface UserData {
   phoneNumber: string;
@@ -27,7 +22,6 @@ interface ClientAuthState {
   error: string | null;
   otpCode: string | null; // Хранение OTP кода
   userData: UserData | null;
-  confirmationResult: ConfirmationResult | null; // Firebase Phone Auth confirmation
 
   // Actions
   setPhoneNumber: (phone: string) => void;
@@ -78,7 +72,6 @@ export const useClientAuthStore = create<ClientAuthState>((set, get) => ({
   error: null,
   otpCode: null,
   userData: savedState.userData || null,
-  confirmationResult: null, // Firebase Phone Auth confirmation
   
   setPhoneNumber: (phone) => {
     const newState = { phoneNumber: phone };
@@ -135,72 +128,33 @@ export const useClientAuthStore = create<ClientAuthState>((set, get) => ({
         // Продолжаем процесс верификации, даже если была ошибка Firestore
       }
 
-      try {
-        // Инициализируем reCAPTCHA verifier (invisible)
-        const recaptchaContainer = document.getElementById('recaptcha-container');
-        if (!recaptchaContainer) {
-          throw new Error('reCAPTCHA контейнер не найден');
-        }
+      // Отправляем OTP через Kazinfoteh SMS API
+      console.log('[ClientAuth] Отправка OTP через Kazinfoteh на номер:', formattedPhone);
+      const otpResult = await SmsService.sendOtpCode(formattedPhone);
 
-        // Очищаем предыдущий reCAPTCHA, если есть
-        recaptchaContainer.innerHTML = '';
-
-        const recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainer, {
-          size: 'invisible',
-          callback: (response: any) => {
-            console.log('[ClientAuth] reCAPTCHA верификация успешна', response);
-          },
-          'expired-callback': () => {
-            console.warn('[ClientAuth] reCAPTCHA истек');
-            set({
-              loading: false,
-              error: 'Время сеанса истекло. Пожалуйста, попробуйте снова'
-            });
-          }
-        });
-
-        console.log('[ClientAuth] Отправка SMS через Firebase на номер:', formattedPhone);
-
-        // Отправляем SMS через Firebase Phone Auth
-        const confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, recaptchaVerifier).then(res => {console.log('[ClientAuth] SMS успешно отправлено через Firebase', res)}).catch(err => {console.log("ERR", err)});
-        // Сохраняем confirmationResult для последующей верификации
-        set({
-          phoneNumber: formattedPhone,
-          confirmationResult,
-          loading: false,
-          isNewUser
-        });
-
-        saveStateToStorage({
-          phoneNumber: formattedPhone,
-          isNewUser
-        });
-      } catch (smsError: any) {
-        console.error('[ClientAuth] Ошибка при отправке SMS через Firebase:', smsError);
-
-        let errorMessage = 'Ошибка при отправке SMS верификации';
-        if (smsError.code === 'auth/invalid-phone-number') {
-          errorMessage = 'Неверный формат номера телефона';
-        } else if (smsError.code === 'auth/too-many-requests') {
-          errorMessage = 'Слишком много попыток. Попробуйте позже';
-        } else if (smsError.code === 'auth/quota-exceeded') {
-          errorMessage = 'Превышена квота SMS. Обратитесь в поддержку';
-        } else if (smsError.code === 'auth/missing-phone-number') {
-          errorMessage = 'Не указан номер телефона';
-        } else if (smsError.code === 'auth/captcha-check-failed') {
-          errorMessage = 'Ошибка проверки безопасности. Попробуйте обновить страницу';
-        } else if (smsError.code === 'auth/invalid-app-credential') {
-          errorMessage = 'Ошибка конфигурации приложения. Обратитесь в поддержку';
-        } else if (smsError.message) {
-          errorMessage = smsError.message;
-        }
-
+      if (!otpResult.success) {
+        const errorMessage = otpResult.error || 'Ошибка при отправке SMS верификации';
         set({
           loading: false,
           error: errorMessage
         });
         throw new Error(errorMessage);
       }
+
+      console.log('[ClientAuth] OTP успешно отправлен через Kazinfoteh');
+
+      // Сохраняем состояние
+      set({
+        phoneNumber: formattedPhone,
+        loading: false,
+        isNewUser
+      });
+
+      saveStateToStorage({
+        phoneNumber: formattedPhone,
+        isNewUser
+      });
+
     } catch (error) {
       console.error('[ClientAuth] Error verifying phone:', error);
       set({
@@ -213,7 +167,6 @@ export const useClientAuthStore = create<ClientAuthState>((set, get) => ({
   
   verifyOtp: async (otp: string) => {
     try {
-      const confirmationResult = get().confirmationResult;
       const phone = get().phoneNumber;
       const isNewUser = get().isNewUser;
 
@@ -221,52 +174,37 @@ export const useClientAuthStore = create<ClientAuthState>((set, get) => ({
         throw new Error('Номер телефона не указан');
       }
 
-      if (!confirmationResult) {
-        throw new Error('Сессия верификации не найдена. Пожалуйста, запросите код повторно');
-      }
-
       set({ loading: true, error: null });
 
-      try {
-        console.log('[ClientAuth] Проверка OTP кода через Firebase');
+      console.log('[ClientAuth] Проверка OTP кода через SmsService');
 
-        // Подтверждаем код через Firebase
-        const userCredential = await confirmationResult.confirm(otp);
-        const firebaseUser = userCredential.user;
+      // Проверяем код через наш SmsService
+      const verifyResult = await SmsService.verifyOtpCode(phone, otp);
 
-        console.log('[ClientAuth] OTP код верифицирован успешно. Firebase UID:', firebaseUser.uid);
-
-        // Если это новый пользователь, мы должны перевести его на экран заполнения данных
-        // Если существующий - считаем его аутентифицированным
-        const newState = {
-          loading: false,
-          isAuthenticated: !isNewUser,
-          otpCode: otp // Сохраняем код для возможных дальнейших действий
-        };
-
-        set(newState);
-        saveStateToStorage({
-          isAuthenticated: !isNewUser
-        });
-
-        console.log('[ClientAuth] Пользователь успешно аутентифицирован. isNewUser:', isNewUser);
-
-        return isNewUser;
-      } catch (verifyError: any) {
-        console.error('[ClientAuth] Ошибка при проверке OTP через Firebase:', verifyError);
-
-        let errorMessage = 'Неверный код подтверждения';
-        if (verifyError.code === 'auth/invalid-verification-code') {
-          errorMessage = 'Неверный код подтверждения. Пожалуйста, попробуйте еще раз';
-        } else if (verifyError.code === 'auth/code-expired') {
-          errorMessage = 'Срок действия кода истек. Пожалуйста, запросите новый код';
-        } else if (verifyError.message) {
-          errorMessage = verifyError.message;
-        }
-
+      if (!verifyResult.valid) {
+        const errorMessage = verifyResult.error || 'Неверный код подтверждения';
         set({ loading: false, error: errorMessage });
         throw new Error(errorMessage);
       }
+
+      console.log('[ClientAuth] OTP код верифицирован успешно');
+
+      // Если это новый пользователь, мы должны перевести его на экран заполнения данных
+      // Если существующий - считаем его аутентифицированным
+      const newState = {
+        loading: false,
+        isAuthenticated: !isNewUser,
+        otpCode: otp // Сохраняем код для возможных дальнейших действий
+      };
+
+      set(newState);
+      saveStateToStorage({
+        isAuthenticated: !isNewUser
+      });
+
+      console.log('[ClientAuth] Пользователь успешно аутентифицирован. isNewUser:', isNewUser);
+
+      return isNewUser;
     } catch (error) {
       console.error('[ClientAuth] Error verifying OTP:', error);
       const errorMessage = error instanceof Error
@@ -372,11 +310,9 @@ export const useClientAuthStore = create<ClientAuthState>((set, get) => ({
   signOut: async () => {
     try {
       set({ loading: true });
-      // Выход из Firebase Auth
-      await firebaseSignOut(auth);
-      
+
       // Очищаем все данные пользователя
-      const resetState = { 
+      const resetState = {
         phoneNumber: '',
         iin: '',
         fullName: '',
@@ -391,11 +327,11 @@ export const useClientAuthStore = create<ClientAuthState>((set, get) => ({
       set(resetState);
       // Удаляем данные из localStorage
       localStorage.removeItem('clientAuthState');
-      
+
       console.log('Пользователь успешно вышел из системы');
     } catch (error) {
       console.error('Error signing out:', error);
-      set({ 
+      set({
         loading: false,
         error: error instanceof Error ? error.message : 'Ошибка при выходе из системы'
       });
@@ -413,70 +349,27 @@ export const useClientAuthStore = create<ClientAuthState>((set, get) => ({
 
       set({ loading: true, error: null });
 
-      try {
-        // Форматируем номер телефона
-        const formattedPhone = phone.startsWith('+') ? phone : `+${phone}`;
+      // Форматируем номер телефона
+      const formattedPhone = phone.startsWith('+') ? phone : `+${phone}`;
 
-        // Инициализируем reCAPTCHA verifier (invisible)
-        const recaptchaContainer = document.getElementById('recaptcha-container');
-        if (!recaptchaContainer) {
-          throw new Error('reCAPTCHA контейнер не найден');
-        }
+      console.log('[ClientAuth] Повторная отправка OTP через Kazinfoteh на номер:', formattedPhone);
 
-        // Очищаем предыдущий reCAPTCHA, если есть
-        recaptchaContainer.innerHTML = '';
+      // Отправляем OTP через наш SmsService
+      const otpResult = await SmsService.sendOtpCode(formattedPhone);
 
-        const recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainer, {
-          size: 'invisible',
-          callback: (response: any) => {
-            console.log('[ClientAuth] reCAPTCHA верификация успешна (resend)', response);
-          },
-          'expired-callback': () => {
-            console.warn('[ClientAuth] reCAPTCHA истек (resend)');
-            set({
-              loading: false,
-              error: 'Время сеанса истекло. Пожалуйста, попробуйте снова'
-            });
-          }
-        });
-
-        console.log('[ClientAuth] Повторная отправка SMS через Firebase на номер:', formattedPhone);
-
-        // Отправляем SMS через Firebase Phone Auth
-        const confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, recaptchaVerifier);
-
-        console.log('[ClientAuth] Повторный SMS успешно отправлен через Firebase');
-
-        // Сохраняем новый confirmationResult
-        set({
-          confirmationResult,
-          loading: false
-        });
-
-      } catch (smsError: any) {
-        console.error('[ClientAuth] Ошибка при повторной отправке SMS через Firebase:', smsError);
-
-        let errorMessage = 'Ошибка при повторной отправке SMS';
-        if (smsError.code === 'auth/too-many-requests') {
-          errorMessage = 'Слишком много попыток. Попробуйте позже';
-        } else if (smsError.code === 'auth/quota-exceeded') {
-          errorMessage = 'Превышена квота SMS. Обратитесь в поддержку';
-        } else if (smsError.code === 'auth/invalid-phone-number') {
-          errorMessage = 'Неверный формат номера телефона';
-        } else if (smsError.code === 'auth/captcha-check-failed') {
-          errorMessage = 'Ошибка проверки безопасности. Попробуйте обновить страницу';
-        } else if (smsError.code === 'auth/invalid-app-credential') {
-          errorMessage = 'Ошибка конфигурации приложения. Обратитесь в поддержку';
-        } else if (smsError.message) {
-          errorMessage = smsError.message;
-        }
-
+      if (!otpResult.success) {
+        const errorMessage = otpResult.error || 'Ошибка при повторной отправке SMS';
         set({
           loading: false,
           error: errorMessage
         });
         throw new Error(errorMessage);
       }
+
+      console.log('[ClientAuth] Повторный OTP успешно отправлен через Kazinfoteh');
+
+      set({ loading: false });
+
     } catch (error) {
       console.error('[ClientAuth] Error resending OTP:', error);
       set({

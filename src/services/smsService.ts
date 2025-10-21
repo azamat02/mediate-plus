@@ -1,15 +1,56 @@
 import { firestore } from '../lib/firebase';
 import { collection, addDoc, doc, setDoc, getDoc, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 
+// Интерфейсы для Kazinfoteh API
+export interface KazinfotehSendRequest {
+  from: string;           // Заголовок (сендер) смс сообщения (3-17 символов)
+  to: string;             // Номер телефона в формате 7XXXXXXXXX (11-15 символов)
+  text: string;           // Текст смс сообщения (1-1000 символов)
+  sent_at?: string;       // Дата и время отправки в формате YYYY-MM-DD HH:mm:ss
+  extra_id?: string;      // Ваш ID сообщения (до 50 символов)
+  notify_url?: string;    // URL для получения статусов (webhook)
+  prioritet?: 0 | 1;      // Приоритет: 0 - обычный, 1 - повышенный
+}
+
+export interface KazinfotehSuccessResponse {
+  bulk_id: string;        // ID массовой рассылки
+  message_id: string;     // Уникальный ID сообщения
+  extra_id: string | null;// Ваш ID, если указывали в запросе
+  to: string;             // Номер телефона
+  sender: string;         // Заголовок (сендер) сообщения
+  text: string;           // Текст сообщения
+  sent_at: string;        // Время отправки
+  done_at: string | null; // Время доставки/не доставки
+  sms_count: string;      // Количество SMS в длинном сообщении
+  priority: string;       // Приоритет сообщения
+  callback_data: string | null;
+  status: 'send' | 'sending' | 'sent' | 'delivered' | 'undelivered';
+  mnc: '1' | '2' | '77' | '7' | '55'; // Код оператора
+  err: string | null;     // Описание ошибки (если есть)
+}
+
+export interface KazinfotehErrorResponse {
+  error_code: number;
+  error_message: string;
+}
+
 // Интерфейс для SMS сообщения
 export interface SmsMessage {
   id?: string;
   phone: string;
   message: string;
-  status: 'pending' | 'sent' | 'failed';
+  status: 'pending' | 'sent' | 'failed' | 'delivered' | 'undelivered';
   createdAt: string;
   clientId?: string;
   clientName?: string;
+  // Дополнительные поля из Kazinfoteh API
+  messageId?: string;     // message_id из API
+  bulkId?: string;        // bulk_id из API
+  smsCount?: number;      // Количество SMS частей
+  mnc?: string;           // Код оператора
+  sentAt?: string;        // Время отправки из API
+  doneAt?: string | null; // Время доставки
+  error?: string | null;  // Описание ошибки
 }
 
 // Интерфейс для OTP кода
@@ -23,14 +64,14 @@ export interface OtpCode {
 }
 
 /**
- * SMS Сервис для отправки сообщений через SMSC.kz
+ * SMS Сервис для отправки сообщений через Kazinfoteh API
  * Сохраняет все SMS в Firestore для истории
  * Поддерживает OTP коды для верификации телефонов
  */
 export class SmsService {
   private static smsCollection = collection(firestore, 'sms_messages');
   private static otpCollection = collection(firestore, 'otp_codes');
-  private static SMSC_API_URL = 'https://smsc.kz/sys/send.php';
+  private static KAZINFOTEH_API_URL = 'https://so.kazinfoteh.org/api/sms/send';
   private static OTP_EXPIRY_MINUTES = 5;
   private static MAX_OTP_ATTEMPTS = 3;
 
@@ -173,111 +214,89 @@ export class SmsService {
   }
 
   /**
-   * Отправка через обычную SMS
+   * Отправка SMS через Kazinfoteh API (новый JSON API)
    * @private
    */
-  private static async sendViaSms(phone: string, message: string): Promise<{ success: boolean; id?: string; error?: string }> {
+  private static async sendViaKazinfoteh(
+    phone: string,
+    message: string
+  ): Promise<{
+    success: boolean;
+    data?: KazinfotehSuccessResponse;
+    error?: string
+  }> {
     try {
-      const apiKey = import.meta.env.VITE_SMSC_API_KEY;
-      if (!apiKey) {
-        return { success: false, error: 'API ключ не найден' };
+      const username = import.meta.env.VITE_KAZINFOTEH_USERNAME;
+      const password = import.meta.env.VITE_KAZINFOTEH_PASSWORD;
+      const originator = import.meta.env.VITE_KAZINFOTEH_ORIGINATOR || 'KiT_Notify';
+
+      if (!username || !password) {
+        return { success: false, error: 'Kazinfoteh credentials не найдены' };
       }
 
-      const params = new URLSearchParams({
-        apikey: apiKey,
-        phones: phone.replace('+', ''),
-        mes: message,
-        charset: 'utf-8',
-        fmt: '3'
+      // Формируем Basic Auth токен
+      const authToken = btoa(`${username}:${password}`);
+
+      // Формируем тело запроса согласно новому API
+      const requestBody: KazinfotehSendRequest = {
+        from: originator,
+        to: phone.replace('+', ''),  // Убираем + из номера
+        text: message,
+        prioritet: 0  // Обычный приоритет
+      };
+
+      console.log('[SMS] 📤 Отправка запроса к Kazinfoteh API:', {
+        url: this.KAZINFOTEH_API_URL,
+        to: requestBody.to,
+        from: requestBody.from
       });
 
-      const response = await fetch(`${this.SMSC_API_URL}?${params.toString()}`);
-      const result = await response.json();
+      const response = await fetch(this.KAZINFOTEH_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${authToken}`
+        },
+        body: JSON.stringify(requestBody)
+      });
 
-      if (result.error || result.error_code) {
-        return { success: false, error: result.error || `Код ошибки: ${result.error_code}` };
+      // Обрабатываем JSON ответ
+      const responseData = await response.json();
+
+      // Проверяем успешность ответа
+      if (!response.ok) {
+        const errorResponse = responseData as KazinfotehErrorResponse;
+        console.error('[SMS] ❌ Ошибка API:', errorResponse);
+        return {
+          success: false,
+          error: `[${errorResponse.error_code}] ${errorResponse.error_message}`
+        };
       }
 
-      return { success: true, id: result.id };
+      const successResponse = responseData as KazinfotehSuccessResponse;
+
+      console.log('[SMS] ✅ Успешный ответ от API:', {
+        message_id: successResponse.message_id,
+        status: successResponse.status,
+        sms_count: successResponse.sms_count,
+        mnc: successResponse.mnc
+      });
+
+      return {
+        success: true,
+        data: successResponse
+      };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Неизвестная ошибка' };
+      console.error('[SMS] ❌ Исключение при отправке:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+      };
     }
   }
 
   /**
-   * Отправка через Telegram
-   * @private
-   */
-  private static async sendViaTelegram(phone: string, message: string): Promise<{ success: boolean; id?: string; error?: string }> {
-    try {
-      const apiKey = import.meta.env.VITE_SMSC_API_KEY;
-      if (!apiKey) {
-        return { success: false, error: 'API ключ не найден' };
-      }
-
-      const params = new URLSearchParams({
-        apikey: apiKey,
-        phones: phone.replace('+', ''),
-        mes: message,
-        tg: '1', // Telegram флаг
-        charset: 'utf-8',
-        fmt: '3'
-      });
-
-      const response = await fetch(`${this.SMSC_API_URL}?${params.toString()}`);
-      const result = await response.json();
-
-      if (result.error || result.error_code) {
-        return { success: false, error: result.error || `Код ошибки: ${result.error_code}` };
-      }
-
-      return { success: true, id: result.id };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Неизвестная ошибка' };
-    }
-  }
-
-  /**
-   * Отправка через WhatsApp
-   * @private
-   */
-  private static async sendViaWhatsApp(phone: string, message: string): Promise<{ success: boolean; id?: string; error?: string }> {
-    try {
-      const apiKey = import.meta.env.VITE_SMSC_API_KEY;
-      const whatsappBot = import.meta.env.VITE_SMSC_WHATSAPP_BOT;
-
-      if (!apiKey) {
-        return { success: false, error: 'API ключ не найден' };
-      }
-
-      if (!whatsappBot) {
-        return { success: false, error: 'WhatsApp бот не настроен' };
-      }
-
-      const params = new URLSearchParams({
-        apikey: apiKey,
-        phones: phone.replace('+', ''),
-        mes: message,
-        bot: `wa:${whatsappBot}`, // WhatsApp бот
-        charset: 'utf-8',
-        fmt: '3'
-      });
-
-      const response = await fetch(`${this.SMSC_API_URL}?${params.toString()}`);
-      const result = await response.json();
-
-      if (result.error || result.error_code) {
-        return { success: false, error: result.error || `Код ошибки: ${result.error_code}` };
-      }
-
-      return { success: true, id: result.id };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Неизвестная ошибка' };
-    }
-  }
-
-  /**
-   * Отправка сообщения с fallback: SMS → Telegram → WhatsApp
+   * Отправка SMS сообщения через Kazinfoteh API
    * @param phone Номер телефона в формате +7XXXXXXXXXX
    * @param message Текст сообщения
    * @param clientId ID клиента (опционально)
@@ -311,43 +330,42 @@ export class SmsService {
 
       const docRef = await addDoc(this.smsCollection, smsData);
 
-      // Пробуем отправить через SMS
-      console.log('[SMS] 📤 Попытка #1: Отправка через SMS...');
-      let result = await this.sendViaSms(formattedPhone, message);
+      // Отправляем через Kazinfoteh API
+      console.log('[SMS] 📤 Отправка через Kazinfoteh API...');
+      const result = await this.sendViaKazinfoteh(formattedPhone, message);
 
-      if (result.success) {
-        console.log('[SMS] ✅ Успешно отправлено через SMS, ID:', result.id);
-        await this.updateSmsStatus(docRef.id, 'sent');
+      if (result.success && result.data) {
+        const apiData = result.data;
+
+        console.log('[SMS] ✅ Успешно отправлено через Kazinfoteh, ID:', apiData.message_id);
+
+        // Обновляем запись с данными из API
+        const { updateDoc } = await import('firebase/firestore');
+        const smsDoc = doc(this.smsCollection, docRef.id);
+        await updateDoc(smsDoc, {
+          status: apiData.status,           // Актуальный статус из API
+          messageId: apiData.message_id,    // ID сообщения из API
+          bulkId: apiData.bulk_id,          // ID рассылки
+          smsCount: parseInt(apiData.sms_count), // Количество SMS частей
+          mnc: apiData.mnc,                 // Код оператора
+          sentAt: apiData.sent_at,          // Время отправки из API
+          doneAt: apiData.done_at,          // Время доставки (если есть)
+          error: apiData.err                // Ошибка (если есть)
+        });
+
         return true;
       }
 
-      console.warn('[SMS] ❌ SMS не удалось:', result.error);
+      console.error('[SMS] ❌ Ошибка отправки через Kazinfoteh:', result.error);
 
-      // Пробуем отправить через Telegram
-      console.log('[SMS] 📤 Попытка #2: Отправка через Telegram...');
-      result = await this.sendViaTelegram(formattedPhone, message);
+      // Обновляем статус на failed и сохраняем ошибку
+      const { updateDoc } = await import('firebase/firestore');
+      const smsDoc = doc(this.smsCollection, docRef.id);
+      await updateDoc(smsDoc, {
+        status: 'failed',
+        error: result.error
+      });
 
-      if (result.success) {
-        console.log('[SMS] ✅ Успешно отправлено через Telegram, ID:', result.id);
-        await this.updateSmsStatus(docRef.id, 'sent');
-        return true;
-      }
-
-      console.warn('[SMS] ❌ Telegram не удалось:', result.error);
-
-      // Пробуем отправить через WhatsApp
-      console.log('[SMS] 📤 Попытка #3: Отправка через WhatsApp...');
-      result = await this.sendViaWhatsApp(formattedPhone, message);
-
-      if (result.success) {
-        console.log('[SMS] ✅ Успешно отправлено через WhatsApp, ID:', result.id);
-        await this.updateSmsStatus(docRef.id, 'sent');
-        return true;
-      }
-
-      console.error('[SMS] ❌ WhatsApp не удалось:', result.error);
-      console.error('[SMS] 💥 Все каналы отправки не сработали (SMS → Telegram → WhatsApp)');
-      await this.updateSmsStatus(docRef.id, 'failed');
       return false;
 
     } catch (error) {
@@ -393,7 +411,7 @@ export class SmsService {
    */
   private static async updateSmsStatus(
     smsId: string,
-    status: 'sent' | 'failed'
+    status: 'pending' | 'send' | 'sending' | 'sent' | 'delivered' | 'undelivered' | 'failed'
   ): Promise<void> {
     try {
       const { doc, updateDoc } = await import('firebase/firestore');

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api.kazinfoteh.org)",
+      "Bash(test:*)",
+      "Bash(cat:*)",
+      "Bash(npm run build:*)",
+      "mcp__ide__getDiagnostics"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

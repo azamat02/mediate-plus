@@ -1,4 +1,4 @@
-import { mobizonApi } from '../lib/mobizon';
+import { SmsService } from './smsService';
 import { createDocument, updateDocument, getDocument } from '../lib/firebase';
 
 // Интерфейс для хранения верификации
@@ -39,9 +39,9 @@ export const sendOTPForDocumentSign = async (
     
     // Формирование текста сообщения
     const message = `Ваш код подтверждения для подписания документа в Kelisim.bar: ${code}`;
-    
-    // Отправка SMS через Mobizon
-    const success = await mobizonApi.sendSms(phoneNumber, message);
+
+    // Отправка SMS через Kazinfoteh API
+    const success = await SmsService.sendSms(phoneNumber, message);
     
     if (success) {
       // Создание записи о верификации в Firestore
