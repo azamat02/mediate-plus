@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import './styles/animations.css';
-import { setupTestUser } from './lib/supabase.ts';
 
 // Добавляем обработчик для отлова глобальных ошибок
 window.addEventListener('error', (event) => {
@@ -68,16 +67,6 @@ if (rootElement) {
       <App />
     </StrictMode>
   );
-  
-  // Setup test user for development без блокировки рендеринга
-  if (import.meta.env.DEV) {
-    // Выполняем асинхронно, чтобы не блокировать рендеринг
-    setTimeout(() => {
-      setupTestUser().catch(error => {
-        console.error('Ошибка при настройке тестового пользователя:', error);
-      });
-    }, 0);
-  }
 } else {
   console.error('Элемент с id "root" не найден!');
 }

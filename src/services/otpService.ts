@@ -38,7 +38,7 @@ export const sendOTPForDocumentSign = async (
     const code = Math.floor(1000 + Math.random() * 9000).toString();
     
     // Формирование текста сообщения
-    const message = `Ваш код подтверждения для подписания документа в Mediate+: ${code}`;
+    const message = `Ваш код подтверждения для подписания документа в Kelisim.bar: ${code}`;
     
     // Отправка SMS через Mobizon
     const success = await mobizonApi.sendSms(phoneNumber, message);

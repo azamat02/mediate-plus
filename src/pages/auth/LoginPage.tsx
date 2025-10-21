@@ -27,16 +27,16 @@ export const LoginPage: React.FC = () => {
       <div className="w-full md:w-1/2 flex flex-col justify-center px-4 sm:px-6 lg:px-8 py-12">
         <div className="mx-auto w-full max-w-md">
           <div className="flex items-center mb-8">
-            <img 
-              src="https://ucarecdn.com/db58423a-4747-4ab8-bc44-ba8209fd3940/mediate_logo.png" 
-              alt="Mediate Logo" 
-              className="h-10 w-auto" 
+            <img
+              src="/images/logo-dark.svg"
+              alt="Kelisim Logo"
+              className="h-10 w-auto"
             />
           </div>
           
           <div className="mb-8">
             <h2 className="text-3xl font-bold text-white">
-              Добро пожаловать в Mediate+
+              Добро пожаловать в Kelisim.bar
             </h2>
             <p className="mt-2 text-gray-400">
               Платформа для медиации финансовых споров
@@ -67,7 +67,7 @@ export const LoginPage: React.FC = () => {
         <div className="h-full w-full bg-black bg-opacity-50 flex items-center justify-center p-12">
           <div className="max-w-md">
             <blockquote className="text-xl font-medium text-white italic">
-              "Mediate+ помогла нам разрешить сложный финансовый спор за считанные дни, сэкономив время и деньги на судебных разбирательствах."
+              "Kelisim.bar помогла нам разрешить сложный финансовый спор за считанные дни, сэкономив время и деньги на судебных разбирательствах."
             </blockquote>
             <div className="mt-4 text-white">
               <p className="font-semibold">Алексей Петров</p>

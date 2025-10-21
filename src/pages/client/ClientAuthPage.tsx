@@ -105,13 +105,13 @@ export const ClientAuthPage: React.FC = () => {
           {/* Логотип с улучшенным дизайном */}
           <div className="flex justify-center mb-12">
             <div className="relative">
-            <img 
-                  src={document.documentElement.classList.contains('dark') 
-                    ? "https://ucarecdn.com/db58423a-4747-4ab8-bc44-ba8209fd3940/mediate_logo.png"
-                    : "https://ucarecdn.com/3071e706-b43d-4cfb-a448-f28a64061678/logo_white.png"
-                  } 
-                  alt="Mediate Logo" 
-                  className="h-7 w-auto mb-2 animate-float" 
+            <img
+                  src={document.documentElement.classList.contains('dark')
+                    ? "/images/logo-dark.svg"
+                    : "/images/logo-light.svg"
+                  }
+                  alt="Kelisim Logo"
+                  className="h-7 w-auto mb-2 animate-float"
                 />
             </div>
           </div>
@@ -260,7 +260,7 @@ export const ClientAuthPage: React.FC = () => {
       
       {/* Минималистичный футер */}
       <div className="py-4 text-center text-xs text-gray-400 dark:text-gray-600 relative z-10">
-        © 2025 Mediate+ • Все права защищены
+        © 2025 Kelisim.bar • Все права защищены
       </div>
     </div>
   );

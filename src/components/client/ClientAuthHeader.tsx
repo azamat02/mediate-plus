@@ -19,24 +19,24 @@ export const ClientAuthHeader: React.FC = () => {
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.5 }}
               >
-                <motion.img 
+                <motion.img
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ duration: 0.5 }}
-                  src={theme === 'dark' 
-                    ? "https://ucarecdn.com/3071e706-b43d-4cfb-a448-f28a64061678/logo_white.png" 
-                    : "https://ucarecdn.com/db58423a-4747-4ab8-bc44-ba8209fd3940/mediate_logo.png"
-                  } 
-                  alt="Mediate Logo" 
-                  className="h-8 w-auto" 
+                  src={theme === 'dark'
+                    ? "/images/logo-dark.svg"
+                    : "/images/logo-light.svg"
+                  }
+                  alt="Kelisim Logo"
+                  className="h-8 w-auto"
                 />
-                <motion.span 
+                <motion.span
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.2, duration: 0.3 }}
                   className="ml-2 font-bold text-lg text-indigo-600 dark:text-indigo-400"
                 >
-                  Mediate<span className="text-indigo-800 dark:text-indigo-300">+</span>
+                  Kelisim<span className="text-indigo-800 dark:text-indigo-300">.bar</span>
                 </motion.span>
               </motion.div>
             </Link>

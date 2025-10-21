@@ -1,9 +1,12 @@
 import { create } from 'zustand';
-import { mobizonApi } from '../lib/mobizon';
-import { auth, firestore, createDocument, getDocument, updateDocument } from '../lib/firebase';
-import { signOut as firebaseSignOut } from 'firebase/auth';
+import { auth, firestore } from '../lib/firebase';
+import {
+  signOut as firebaseSignOut,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult
+} from 'firebase/auth';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
-import { v4 as uuidv4 } from 'uuid';
 
 interface UserData {
   phoneNumber: string;
@@ -24,7 +27,8 @@ interface ClientAuthState {
   error: string | null;
   otpCode: string | null; // Хранение OTP кода
   userData: UserData | null;
-  
+  confirmationResult: ConfirmationResult | null; // Firebase Phone Auth confirmation
+
   // Actions
   setPhoneNumber: (phone: string) => void;
   verifyPhone: (phone: string) => Promise<void>;
@@ -74,6 +78,7 @@ export const useClientAuthStore = create<ClientAuthState>((set, get) => ({
   error: null,
   otpCode: null,
   userData: savedState.userData || null,
+  confirmationResult: null, // Firebase Phone Auth confirmation
   
   setPhoneNumber: (phone) => {
     const newState = { phoneNumber: phone };
@@ -84,22 +89,22 @@ export const useClientAuthStore = create<ClientAuthState>((set, get) => ({
   verifyPhone: async (phone: string) => {
     try {
       set({ loading: true, error: null });
-      
+
+      // Форматируем номер телефона
+      const formattedPhone = phone.startsWith('+') ? phone : `+${phone}`;
+
       // Проверяем, существует ли пользователь в Firestore
       let isNewUser = true;
       let userData: UserData | null = null;
-      
+
       try {
-        // Проверяем, существует ли пользователь в Firestore
-        const formattedPhone = phone.startsWith('+') ? phone : `+${phone}`;
-        
         // Запрос к Firestore для поиска пользователя по номеру телефона
         const usersQuery = query(
           collection(firestore, 'client_users'),
           where('phoneNumber', '==', formattedPhone)
         );
         const querySnapshot = await getDocs(usersQuery);
-        
+
         // Преобразуем результаты запроса в массив объектов
         const users: UserData[] = [];
         querySnapshot.forEach((doc) => {
@@ -108,86 +113,97 @@ export const useClientAuthStore = create<ClientAuthState>((set, get) => ({
             users.push({ ...data, id: doc.id } as UserData);
           }
         });
-        
+
         if (users.length > 0) {
           // Пользователь существует
           isNewUser = false;
           userData = users[0];
-          
+
           // Обновляем состояние данными пользователя
           set({
             iin: userData.iin || '',
             fullName: userData.fullName || '',
             birthDate: userData.birthDate || '',
           });
-          
-          console.log('Пользователь найден в Firestore:', userData);
+
+          console.log('[ClientAuth] Пользователь найден в Firestore:', userData);
         } else {
-          console.log('Пользователь не найден, это новый пользователь');
+          console.log('[ClientAuth] Пользователь не найден, это новый пользователь');
         }
       } catch (firestoreError) {
-        console.error('Ошибка при проверке пользователя в Firestore:', firestoreError);
+        console.error('[ClientAuth] Ошибка при проверке пользователя в Firestore:', firestoreError);
         // Продолжаем процесс верификации, даже если была ошибка Firestore
       }
-      
+
       try {
-        // Форматируем номер телефона
-        const formattedPhone = phone.startsWith('+') ? phone : `+${phone}`;
-        
-        // Генерируем код подтверждения (4 цифры)
-        const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
-        
-        // Уникальный ID для верификации
-        const verificationId = uuidv4();
-        
-        // Сохраняем код в Firestore
-        await createDocument('verifications', {
-          code: otpCode,
-          phoneNumber: formattedPhone,
-          createdAt: new Date(),
-          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 минут
-          verified: false
-        }, verificationId);
-        
-        // Отправляем SMS через Mobizon
-        const message = `Ваш код подтверждения для Mediate+: ${otpCode}`;
-        const smsResult = await mobizonApi.sendSms(formattedPhone, message);
-        
-        if (!smsResult) {
-          throw new Error('Не удалось отправить SMS с кодом подтверждения');
+        // Инициализируем reCAPTCHA verifier (invisible)
+        const recaptchaContainer = document.getElementById('recaptcha-container');
+        if (!recaptchaContainer) {
+          throw new Error('reCAPTCHA контейнер не найден');
         }
-        
-        console.log('Код подтверждения отправлен на номер', formattedPhone);
-        
-        // Имитация задержки для лучшего UX
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Сохраняем ID верификации в глобальной переменной для последующей проверки
-        // @ts-ignore - добавляем свойство в window для доступа из любого места
-        window.verificationId = verificationId;
-        
-        // Обновляем состояние
+
+        // Очищаем предыдущий reCAPTCHA, если есть
+        recaptchaContainer.innerHTML = '';
+
+        const recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainer, {
+          size: 'invisible',
+          callback: (response: any) => {
+            console.log('[ClientAuth] reCAPTCHA верификация успешна', response);
+          },
+          'expired-callback': () => {
+            console.warn('[ClientAuth] reCAPTCHA истек');
+            set({
+              loading: false,
+              error: 'Время сеанса истекло. Пожалуйста, попробуйте снова'
+            });
+          }
+        });
+
+        console.log('[ClientAuth] Отправка SMS через Firebase на номер:', formattedPhone);
+
+        // Отправляем SMS через Firebase Phone Auth
+        const confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, recaptchaVerifier).then(res => {console.log('[ClientAuth] SMS успешно отправлено через Firebase', res)}).catch(err => {console.log("ERR", err)});
+        // Сохраняем confirmationResult для последующей верификации
         set({
           phoneNumber: formattedPhone,
+          confirmationResult,
           loading: false,
           isNewUser
         });
-        
+
         saveStateToStorage({
           phoneNumber: formattedPhone,
           isNewUser
         });
-      } catch (smsError) {
-        console.error('Ошибка при отправке SMS через Mobizon:', smsError);
-        set({ 
+      } catch (smsError: any) {
+        console.error('[ClientAuth] Ошибка при отправке SMS через Firebase:', smsError);
+
+        let errorMessage = 'Ошибка при отправке SMS верификации';
+        if (smsError.code === 'auth/invalid-phone-number') {
+          errorMessage = 'Неверный формат номера телефона';
+        } else if (smsError.code === 'auth/too-many-requests') {
+          errorMessage = 'Слишком много попыток. Попробуйте позже';
+        } else if (smsError.code === 'auth/quota-exceeded') {
+          errorMessage = 'Превышена квота SMS. Обратитесь в поддержку';
+        } else if (smsError.code === 'auth/missing-phone-number') {
+          errorMessage = 'Не указан номер телефона';
+        } else if (smsError.code === 'auth/captcha-check-failed') {
+          errorMessage = 'Ошибка проверки безопасности. Попробуйте обновить страницу';
+        } else if (smsError.code === 'auth/invalid-app-credential') {
+          errorMessage = 'Ошибка конфигурации приложения. Обратитесь в поддержку';
+        } else if (smsError.message) {
+          errorMessage = smsError.message;
+        }
+
+        set({
           loading: false,
-          error: smsError instanceof Error ? smsError.message : 'Ошибка при отправке SMS верификации'
+          error: errorMessage
         });
-        throw smsError;
+        throw new Error(errorMessage);
       }
     } catch (error) {
-      console.error('Error verifying phone:', error);
-      set({ 
+      console.error('[ClientAuth] Error verifying phone:', error);
+      set({
         loading: false,
         error: error instanceof Error ? error.message : 'Ошибка при верификации телефона'
       });
@@ -197,70 +213,66 @@ export const useClientAuthStore = create<ClientAuthState>((set, get) => ({
   
   verifyOtp: async (otp: string) => {
     try {
+      const confirmationResult = get().confirmationResult;
       const phone = get().phoneNumber;
       const isNewUser = get().isNewUser;
-      
+
       if (!phone) {
         throw new Error('Номер телефона не указан');
       }
-      
+
+      if (!confirmationResult) {
+        throw new Error('Сессия верификации не найдена. Пожалуйста, запросите код повторно');
+      }
+
       set({ loading: true, error: null });
-      
-      // @ts-ignore - доступ к verificationId, сохраненному ранее
-      const verificationId = window.verificationId;
-      
-      if (!verificationId) {
-        throw new Error('Не найден ID верификации. Пожалуйста, запросите код повторно');
+
+      try {
+        console.log('[ClientAuth] Проверка OTP кода через Firebase');
+
+        // Подтверждаем код через Firebase
+        const userCredential = await confirmationResult.confirm(otp);
+        const firebaseUser = userCredential.user;
+
+        console.log('[ClientAuth] OTP код верифицирован успешно. Firebase UID:', firebaseUser.uid);
+
+        // Если это новый пользователь, мы должны перевести его на экран заполнения данных
+        // Если существующий - считаем его аутентифицированным
+        const newState = {
+          loading: false,
+          isAuthenticated: !isNewUser,
+          otpCode: otp // Сохраняем код для возможных дальнейших действий
+        };
+
+        set(newState);
+        saveStateToStorage({
+          isAuthenticated: !isNewUser
+        });
+
+        console.log('[ClientAuth] Пользователь успешно аутентифицирован. isNewUser:', isNewUser);
+
+        return isNewUser;
+      } catch (verifyError: any) {
+        console.error('[ClientAuth] Ошибка при проверке OTP через Firebase:', verifyError);
+
+        let errorMessage = 'Неверный код подтверждения';
+        if (verifyError.code === 'auth/invalid-verification-code') {
+          errorMessage = 'Неверный код подтверждения. Пожалуйста, попробуйте еще раз';
+        } else if (verifyError.code === 'auth/code-expired') {
+          errorMessage = 'Срок действия кода истек. Пожалуйста, запросите новый код';
+        } else if (verifyError.message) {
+          errorMessage = verifyError.message;
+        }
+
+        set({ loading: false, error: errorMessage });
+        throw new Error(errorMessage);
       }
-      
-      // Получаем запись верификации из Firestore
-      const verification = await getDocument('verifications', verificationId);
-      
-      if (!verification) {
-        throw new Error('Запись верификации не найдена. Пожалуйста, запросите код повторно');
-      }
-      
-      // Проверяем срок действия кода
-      const expiresAt = verification.expiresAt?.toDate?.() || new Date(verification.expiresAt);
-      if (expiresAt < new Date()) {
-        throw new Error('Срок действия кода истек. Пожалуйста, запросите новый код');
-      }
-      
-      // Проверяем, что код совпадает
-      if (verification.code !== otp) {
-        throw new Error('Неверный код подтверждения. Пожалуйста, попробуйте еще раз');
-      }
-      
-      // Обновляем запись верификации
-      await updateDocument('verifications', verificationId, {
-        verified: true,
-        verifiedAt: new Date()
-      });
-      
-      // Если дошли до этой точки, значит верификация прошла успешно
-      const currentState = get();
-      const userIsNew = currentState.isNewUser;
-      
-      // Если это новый пользователь, мы должны перевести его на экран заполнения данных
-      // Если существующий - считаем его аутентифицированным
-      const newState = {
-        loading: false,
-        isAuthenticated: !userIsNew,
-        otpCode: otp // Сохраняем код для возможных дальнейших действий
-      };
-      
-      set(newState);
-      saveStateToStorage({
-        isAuthenticated: !userIsNew
-      });
-      
-      return userIsNew;
     } catch (error) {
-      console.error('Error verifying OTP:', error);
+      console.error('[ClientAuth] Error verifying OTP:', error);
       const errorMessage = error instanceof Error
         ? error.message
         : 'Неверный код подтверждения. Пожалуйста, попробуйте еще раз';
-      
+
       set({ loading: false, error: errorMessage });
       throw error;
     }
@@ -394,63 +406,80 @@ export const useClientAuthStore = create<ClientAuthState>((set, get) => ({
   resendOtp: async () => {
     try {
       const phone = get().phoneNumber;
-      
+
       if (!phone) {
         throw new Error('Номер телефона не указан');
       }
-      
+
       set({ loading: true, error: null });
-      
+
       try {
         // Форматируем номер телефона
         const formattedPhone = phone.startsWith('+') ? phone : `+${phone}`;
-        
-        // Генерируем новый код подтверждения
-        const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
-        
-        // Уникальный ID для новой верификации
-        const verificationId = uuidv4();
-        
-        // Сохраняем код в Firestore
-        await createDocument('verifications', {
-          code: otpCode,
-          phoneNumber: formattedPhone,
-          createdAt: new Date(),
-          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 минут
-          verified: false
-        }, verificationId);
-        
-        // Отправляем SMS через Mobizon
-        const message = `Ваш новый код подтверждения для Mediate+: ${otpCode}`;
-        const smsResult = await mobizonApi.sendSms(formattedPhone, message);
-        
-        if (!smsResult) {
-          throw new Error('Не удалось отправить SMS с кодом подтверждения');
+
+        // Инициализируем reCAPTCHA verifier (invisible)
+        const recaptchaContainer = document.getElementById('recaptcha-container');
+        if (!recaptchaContainer) {
+          throw new Error('reCAPTCHA контейнер не найден');
         }
-        
-        // Сохраняем ID верификации в глобальной переменной для последующей проверки
-        // @ts-ignore - добавляем свойство в window для доступа из любого места
-        window.verificationId = verificationId;
-        
-        console.log('Повторный код подтверждения отправлен на номер', formattedPhone);
-        
-        // Имитация задержки для лучшего UX
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Обновляем состояние
-        set({ loading: false });
-        
-      } catch (smsError) {
-        console.error('Ошибка при повторной отправке SMS через Mobizon:', smsError);
-        set({ 
-          loading: false,
-          error: smsError instanceof Error ? smsError.message : 'Ошибка при повторной отправке SMS верификации'
+
+        // Очищаем предыдущий reCAPTCHA, если есть
+        recaptchaContainer.innerHTML = '';
+
+        const recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainer, {
+          size: 'invisible',
+          callback: (response: any) => {
+            console.log('[ClientAuth] reCAPTCHA верификация успешна (resend)', response);
+          },
+          'expired-callback': () => {
+            console.warn('[ClientAuth] reCAPTCHA истек (resend)');
+            set({
+              loading: false,
+              error: 'Время сеанса истекло. Пожалуйста, попробуйте снова'
+            });
+          }
         });
-        throw smsError;
+
+        console.log('[ClientAuth] Повторная отправка SMS через Firebase на номер:', formattedPhone);
+
+        // Отправляем SMS через Firebase Phone Auth
+        const confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, recaptchaVerifier);
+
+        console.log('[ClientAuth] Повторный SMS успешно отправлен через Firebase');
+
+        // Сохраняем новый confirmationResult
+        set({
+          confirmationResult,
+          loading: false
+        });
+
+      } catch (smsError: any) {
+        console.error('[ClientAuth] Ошибка при повторной отправке SMS через Firebase:', smsError);
+
+        let errorMessage = 'Ошибка при повторной отправке SMS';
+        if (smsError.code === 'auth/too-many-requests') {
+          errorMessage = 'Слишком много попыток. Попробуйте позже';
+        } else if (smsError.code === 'auth/quota-exceeded') {
+          errorMessage = 'Превышена квота SMS. Обратитесь в поддержку';
+        } else if (smsError.code === 'auth/invalid-phone-number') {
+          errorMessage = 'Неверный формат номера телефона';
+        } else if (smsError.code === 'auth/captcha-check-failed') {
+          errorMessage = 'Ошибка проверки безопасности. Попробуйте обновить страницу';
+        } else if (smsError.code === 'auth/invalid-app-credential') {
+          errorMessage = 'Ошибка конфигурации приложения. Обратитесь в поддержку';
+        } else if (smsError.message) {
+          errorMessage = smsError.message;
+        }
+
+        set({
+          loading: false,
+          error: errorMessage
+        });
+        throw new Error(errorMessage);
       }
     } catch (error) {
-      console.error('Error resending OTP:', error);
-      set({ 
+      console.error('[ClientAuth] Error resending OTP:', error);
+      set({
         loading: false,
         error: error instanceof Error ? error.message : 'Ошибка при повторной отправке кода'
       });

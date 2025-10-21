@@ -1,46 +1,46 @@
 import { create } from 'zustand';
 import { nanoid } from 'nanoid';
 import { Client, ClientStatus, ClientsState } from '../types';
-import { supabase } from '../lib/supabase';
-import { mobizonApi } from '../lib/mobizon';
+import { firestore } from '../lib/firebase';
+import { collection, addDoc, getDocs, updateDoc, doc, query, orderBy, setDoc } from 'firebase/firestore';
+import { smsService } from '../services/smsService';
 
 export const useClientsStore = create<ClientsState>((set, get) => ({
   clients: [],
   loading: false,
   error: null,
 
-  // Инициализация - загрузка клиентов из Supabase
+  // Инициализация - загрузка клиентов из Firestore
   initialize: async () => {
     try {
       set({ loading: true, error: null });
-      
-      // Получаем клиентов из базы данных
-      const { data, error } = await supabase
-        .from('clients')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (error) {
-        throw error;
-      }
-      
+
+      // Получаем клиентов из Firestore
+      const clientsCollection = collection(firestore, 'clients');
+      const clientsQuery = query(clientsCollection, orderBy('created_at', 'desc'));
+      const snapshot = await getDocs(clientsQuery);
+
       // Преобразуем данные из БД в формат клиентов для приложения
-      const clients: Client[] = data.map(item => ({
-        id: item.id,
-        name: item.name,
-        phone: item.phone,
-        debtAmount: Number(item.debt_amount),
-        status: item.status as ClientStatus,
-        createdAt: item.created_at,
-        updatedAt: item.updated_at,
-        isNew: item.is_new,
-        documentUrl: item.document_url
-      }));
-      
+      const clients: Client[] = [];
+      snapshot.forEach((doc) => {
+        const item = doc.data();
+        clients.push({
+          id: item.id,
+          name: item.name,
+          phone: item.phone,
+          debtAmount: Number(item.debt_amount),
+          status: item.status as ClientStatus,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at,
+          isNew: item.is_new,
+          documentUrl: item.document_url
+        });
+      });
+
       set({ clients, loading: false });
     } catch (error) {
       console.error('Error initializing clients:', error);
-      set({ 
+      set({
         loading: false,
         error: error instanceof Error ? error.message : 'Ошибка при загрузке клиентов'
       });
@@ -83,8 +83,9 @@ export const useClientsStore = create<ClientsState>((set, get) => ({
         documentUrl
       };
       
-      // Сохраняем клиента в базе данных
-      const { error } = await supabase.from('clients').insert({
+      // Сохраняем клиента в Firestore
+      const clientDoc = doc(firestore, 'clients', newClient.id);
+      await setDoc(clientDoc, {
         id: newClient.id,
         name: newClient.name,
         phone: newClient.phone,
@@ -95,10 +96,6 @@ export const useClientsStore = create<ClientsState>((set, get) => ({
         is_new: newClient.isNew,
         document_url: newClient.documentUrl
       });
-      
-      if (error) {
-        throw error;
-      }
       
       // Добавляем клиента в локальное состояние
       set((state) => ({
@@ -126,34 +123,28 @@ export const useClientsStore = create<ClientsState>((set, get) => ({
   updateClientStatus: async (id, status) => {
     try {
       set({ loading: true, error: null });
-      
-      // Обновляем статус в базе данных
-      const { error } = await supabase
-        .from('clients')
-        .update({ 
-          status, 
-          updated_at: new Date().toISOString(),
-          is_new: false 
-        })
-        .eq('id', id);
-      
-      if (error) {
-        throw error;
-      }
-      
+
+      // Обновляем статус в Firestore
+      const clientDoc = doc(firestore, 'clients', id);
+      await updateDoc(clientDoc, {
+        status,
+        updated_at: new Date().toISOString(),
+        is_new: false
+      });
+
       // Обновляем статус клиента в локальном состоянии
       set((state) => ({
-        clients: state.clients.map(client => 
-          client.id === id 
-            ? { ...client, status, updatedAt: new Date().toISOString(), isNew: false } 
+        clients: state.clients.map(client =>
+          client.id === id
+            ? { ...client, status, updatedAt: new Date().toISOString(), isNew: false }
             : client
         ),
         loading: false
       }));
-      
+
     } catch (error) {
       console.error('Error updating client status:', error);
-      set({ 
+      set({
         loading: false,
         error: error instanceof Error ? error.message : 'Ошибка при обновлении статуса клиента'
       });
@@ -164,97 +155,62 @@ export const useClientsStore = create<ClientsState>((set, get) => ({
   sendSms: async (client) => {
     try {
       set({ loading: true, error: null });
-      
+
       if (!client || !client.phone) {
-        console.error('Ошибка: клиент или номер телефона не указаны', client);
-        set({ 
+        console.error('[ClientsStore] Ошибка: клиент или номер телефона не указаны');
+        set({
           loading: false,
           error: 'Ошибка: номер телефона не указан'
         });
         return false;
       }
-      
-      // Проверяем формат номера телефона перед отправкой
-      const phoneRegex = /^\+?[0-9]{10,15}$/;
-      const cleanPhone = client.phone.replace(/\D/g, '');
-      const formattedPhone = cleanPhone.startsWith('8') && cleanPhone.length === 11 
-        ? '+7' + cleanPhone.substring(1) 
-        : (cleanPhone.length === 10 ? '+7' + cleanPhone : '+' + cleanPhone);
-      
-      if (!phoneRegex.test(formattedPhone)) {
-        console.error(`Неверный формат номера телефона: ${client.phone} (форматированный: ${formattedPhone})`);
-        set({
-          loading: false,
-          error: `Неверный формат номера телефона: ${client.phone}. Номер должен содержать от 10 до 15 цифр.`
-        });
-        return false;
-      }
-      
+
       // Формируем текст сообщения с полным URL
       const message = `Здравствуйте, ${client.name}!
-Это платформа Mediate+.
+Это платформа Kelisim.bar.
 Мы предлагаем вам новые условия реструктуризации вашей задолженности.
 Для ознакомления с предложением перейдите по ссылке: ${client.documentUrl}`;
-      
-      console.log('Отправка SMS клиенту:', {
+
+      console.log('[ClientsStore] Отправка SMS клиенту:', {
         id: client.id,
         name: client.name,
-        phone: client.phone,
-        formattedPhone,
-        messageLength: message.length
+        phone: client.phone
       });
-      
-      // Проверяем длину сообщения (для SMS обычно ограничение 160 символов для одного сообщения)
-      if (message.length > 160) {
-        console.warn(`Внимание: длина сообщения (${message.length} символов) превышает стандартный лимит в 160 символов для одного SMS`);
-      }
-      
-      // Проверяем доступность API ключа
-      if (!import.meta.env.VITE_MOBIZON_API_KEY) {
-        console.warn('API ключ Mobizon не найден в переменных окружения. Используется резервный ключ.');
-      }
-      
-      // Отправляем SMS через Mobizon API с использованием предварительно отформатированного номера
-      const success = await mobizonApi.sendSms(formattedPhone, message);
-      
+
+      // Отправляем SMS через новый сервис
+      const success = await smsService.sendSms(
+        client.phone,
+        message,
+        client.id,
+        client.name
+      );
+
       if (success) {
-        console.log(`SMS успешно отправлено клиенту ${client.name} (${formattedPhone})`);
+        console.log(`[ClientsStore] SMS успешно отправлено клиенту ${client.name}`);
         // Обновляем статус клиента
         await get().updateClientStatus(client.id, 'Отправлено сообщение');
+        set({ loading: false });
         return true;
       } else {
-        console.error(`Не удалось отправить SMS клиенту ${client.name} (${formattedPhone})`);
-        set({ 
+        console.error(`[ClientsStore] Не удалось отправить SMS клиенту ${client.name}`);
+        set({
+          loading: false,
           error: 'Не удалось отправить SMS. Проверьте номер телефона и попробуйте снова.'
         });
         return false;
       }
     } catch (error) {
-      console.error('Ошибка при отправке SMS:', error);
-      
-      // Более детальное сообщение об ошибке
-      let errorMessage = 'Ошибка при отправке SMS';
-      
-      if (error instanceof Error) {
-        errorMessage = `Ошибка при отправке SMS: ${error.message}`;
-        
-        // Добавляем специфичные сообщения для распространенных ошибок
-        if (error.message.includes('timeout')) {
-          errorMessage = 'Превышено время ожидания при отправке SMS. Проверьте интернет-соединение.'; 
-        } else if (error.message.includes('Network Error')) {
-          errorMessage = 'Ошибка сети при отправке SMS. Проверьте интернет-соединение.'; 
-        } else if (error.message.includes('401') || error.message.includes('403')) {
-          errorMessage = 'Ошибка авторизации при отправке SMS. Проверьте API ключ Mobizon.'; 
-        }
-      }
-      
-      set({ 
+      console.error('[ClientsStore] Ошибка при отправке SMS:', error);
+
+      const errorMessage = error instanceof Error
+        ? `Ошибка при отправке SMS: ${error.message}`
+        : 'Ошибка при отправке SMS';
+
+      set({
         loading: false,
         error: errorMessage
       });
       return false;
-    } finally {
-      set({ loading: false });
     }
   },
 

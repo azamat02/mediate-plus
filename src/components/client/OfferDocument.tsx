@@ -31,16 +31,16 @@ export const OfferDocument: React.FC<OfferDocumentProps> = ({
     >
       <div className="flex justify-between items-center mb-8">
         <div className="flex items-center">
-          <img 
-            src={theme === 'dark' 
-              ? "https://ucarecdn.com/3071e706-b43d-4cfb-a448-f28a64061678/logo_white.png" 
-              : "https://ucarecdn.com/db58423a-4747-4ab8-bc44-ba8209fd3940/mediate_logo.png"
-            } 
-            alt="Mediate Logo" 
-            className="h-10 w-auto mr-3" 
+          <img
+            src={theme === 'dark'
+              ? "/images/logo-dark.svg"
+              : "/images/logo-light.svg"
+            }
+            alt="Kelisim Logo"
+            className="h-10 w-auto mr-3"
           />
           <div>
-            <h3 className="text-xl font-bold text-gray-900 dark:text-white">Mediate+</h3>
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white">Kelisim.bar</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">Сервис медиации финансовых споров</p>
           </div>
         </div>
@@ -68,7 +68,7 @@ export const OfferDocument: React.FC<OfferDocumentProps> = ({
           о предоставлении финансовых услуг между Финансовой организацией и Клиентом.
         </p>
         <p>
-          1.2. Медиация проводится с участием независимого медиатора, предоставляемого сервисом Mediate+.
+          1.2. Медиация проводится с участием независимого медиатора, предоставляемого сервисом Kelisim.bar.
         </p>
 
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mt-6 mb-3">2. ПРИНЦИПЫ МЕДИАЦИИ</h3>
@@ -83,7 +83,7 @@ export const OfferDocument: React.FC<OfferDocumentProps> = ({
 
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mt-6 mb-3">3. ПОРЯДОК ПРОВЕДЕНИЯ МЕДИАЦИИ</h3>
         <p>
-          3.1. Медиация проводится в формате онлайн-встреч через платформу Mediate+.
+          3.1. Медиация проводится в формате онлайн-встреч через платформу Kelisim.bar.
         </p>
         <p>
           3.2. Срок проведения процедуры медиации не может превышать 30 календарных дней.
@@ -121,7 +121,7 @@ export const OfferDocument: React.FC<OfferDocumentProps> = ({
 
       <div className="mt-8 text-center">
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Соглашение сформировано в электронном виде через сервис Mediate+.
+          Соглашение сформировано в электронном виде через сервис Kelisim.bar.
           Для подтверждения согласия с условиями необходимо нажать кнопку "Принять оферту".
         </p>
       </div>

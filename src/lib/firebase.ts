@@ -1,7 +1,15 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
-import { getAuth, signOut, onAuthStateChanged, User } from "firebase/auth";
+import {
+  getAuth,
+  signOut,
+  onAuthStateChanged,
+  User,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult
+} from "firebase/auth";
 import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where, DocumentData } from "firebase/firestore";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { getDatabase } from "firebase/database";
@@ -22,6 +30,10 @@ const firebaseConfig = {
 export const app = initializeApp(firebaseConfig);
 export const analytics = getAnalytics(app);
 export const auth = getAuth(app);
+
+// Устанавливаем язык для аутентификации (русский для SMS)
+auth.languageCode = 'ru';
+
 export const firestore = getFirestore(app);
 export const storage = getStorage(app);
 export const database = getDatabase(app);

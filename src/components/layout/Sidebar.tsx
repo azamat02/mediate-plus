@@ -82,16 +82,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <aside className={sidebarClasses}>
         <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
           <Link to="/dashboard" className="flex items-center space-x-2">
-            <motion.img 
+            <motion.img
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.5 }}
-              src={theme === 'dark' 
-                ? "https://ucarecdn.com/3071e706-b43d-4cfb-a448-f28a64061678/logo_white.png" 
-                : "https://ucarecdn.com/db58423a-4747-4ab8-bc44-ba8209fd3940/mediate_logo.png"
-              } 
-              alt="Mediate Logo" 
-              className="h-8 w-auto" 
+              src={theme === 'dark'
+                ? "/images/logo-dark.svg"
+                : "/images/logo-light.svg"
+              }
+              alt="Kelisim Logo"
+              className="h-8 w-auto"
             />
           </Link>
           {isMobile && (

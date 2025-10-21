@@ -31,13 +31,13 @@ export const TermsPage: React.FC = () => {
           </button>
           
           <div className="flex items-center">
-            <img 
-              src={document.documentElement.classList.contains('dark') 
-                ? "https://ucarecdn.com/db58423a-4747-4ab8-bc44-ba8209fd3940/mediate_logo.png"
-                : "https://ucarecdn.com/3071e706-b43d-4cfb-a448-f28a64061678/logo_white.png"
-              } 
-              alt="Mediate Logo" 
-              className="h-8 w-auto" 
+            <img
+              src={document.documentElement.classList.contains('dark')
+                ? "/images/logo-dark.svg"
+                : "/images/logo-light.svg"
+              }
+              alt="Kelisim Logo"
+              className="h-8 w-auto"
             />
           </div>
         </div>
@@ -48,7 +48,7 @@ export const TermsPage: React.FC = () => {
           <div className="prose prose-indigo dark:prose-invert max-w-none">
             <h2>1. Общие положения</h2>
             <p>
-              Настоящий документ представляет собой публичную оферту ТОО "Mediate+" (далее — «Компания») о заключении договора на оказание услуг медиации (далее — «Договор») на изложенных ниже условиях.
+              Настоящий документ представляет собой публичную оферту ТОО "Kelisim.bar" (далее — «Компания») о заключении договора на оказание услуг медиации (далее — «Договор») на изложенных ниже условиях.
             </p>
             <p>
               В соответствии с пунктом 2 статьи 407 Гражданского кодекса Республики Казахстан (ГК РК), в случае принятия изложенных ниже условий и оплаты услуг, физическое или юридическое лицо, производящее акцепт этой оферты, становится Заказчиком (в соответствии с пунктом 3 статьи 396 ГК РК акцепт оферты равносилен заключению договора на условиях, изложенных в оферте).
@@ -128,7 +128,7 @@ export const TermsPage: React.FC = () => {
       
       {/* Минималистичный футер */}
       <div className="py-4 text-center text-xs text-gray-400 dark:text-gray-600 relative z-10 mt-auto">
-        © 2025 Mediate+ • Все права защищены
+        © 2025 Kelisim.bar • Все права защищены
       </div>
     </motion.div>
   );

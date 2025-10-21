@@ -69,15 +69,15 @@ export const ClientDashboardPage: React.FC = () => {
                     transition={{ duration: 0.5 }}
                     className="flex items-center"
                   >
-                    <img 
-                      src={theme === 'dark' 
-                        ? "https://ucarecdn.com/db58423a-4747-4ab8-bc44-ba8209fd3940/mediate_logo.png"
-                        : "https://ucarecdn.com/3071e706-b43d-4cfb-a448-f28a64061678/logo_white.png"
-                      } 
-                      alt="Mediate Logo" 
-                      className="h-8 w-auto mr-2" 
+                    <img
+                      src={theme === 'dark'
+                        ? "/images/logo-dark.svg"
+                        : "/images/logo-light.svg"
+                      }
+                      alt="Kelisim Logo"
+                      className="h-8 w-auto mr-2"
                     />
-                    <span className="font-bold text-xl text-indigo-600 dark:text-indigo-400 hidden sm:inline-block">Mediate<span className="text-indigo-800 dark:text-indigo-300">+</span></span>
+                    <span className="font-bold text-xl text-indigo-600 dark:text-indigo-400 hidden sm:inline-block">Kelisim<span className="text-indigo-800 dark:text-indigo-300">.bar</span></span>
                   </motion.div>
                 </Link>
               </div>
