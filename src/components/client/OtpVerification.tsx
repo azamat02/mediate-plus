@@ -13,13 +13,15 @@ export const OtpVerification: React.FC<OtpVerificationProps> = ({
   onSubmit, 
   onBack 
 }) => {
-  const [otp, setOtp] = useState(['', '', '', '']);
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [error, setError] = useState('');
   const [timer, setTimer] = useState(60);
   const [canResend, setCanResend] = useState(false);
   const { resendOtp, loading: resendLoading } = useClientAuthStore();
-  
+
   const inputRefs = [
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
@@ -41,36 +43,36 @@ export const OtpVerification: React.FC<OtpVerificationProps> = ({
   const handleChange = (index: number, value: string) => {
     if (value.length > 1) {
       // If pasting multiple digits, distribute them
-      const digits = value.split('').slice(0, 4);
+      const digits = value.split('').slice(0, 6);
       const newOtp = [...otp];
-      
+
       digits.forEach((digit, i) => {
-        if (index + i < 4) {
+        if (index + i < 6) {
           newOtp[index + i] = digit;
         }
       });
-      
+
       setOtp(newOtp);
-      
+
       // Focus on the next empty input or the last one
       const nextEmptyIndex = newOtp.findIndex(val => val === '');
-      if (nextEmptyIndex !== -1 && nextEmptyIndex < 4) {
+      if (nextEmptyIndex !== -1 && nextEmptyIndex < 6) {
         inputRefs[nextEmptyIndex].current?.focus();
       } else {
-        inputRefs[3].current?.focus();
+        inputRefs[5].current?.focus();
       }
     } else {
       // Handle single digit input
       const newOtp = [...otp];
       newOtp[index] = value;
       setOtp(newOtp);
-      
+
       // Auto-focus next input
-      if (value && index < 3) {
+      if (value && index < 5) {
         inputRefs[index + 1].current?.focus();
       }
     }
-    
+
     setError('');
   };
 
@@ -83,29 +85,29 @@ export const OtpVerification: React.FC<OtpVerificationProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const otpValue = otp.join('');
-    if (otpValue.length !== 4) {
-      setError('Пожалуйста, введите 4-значный код');
+    if (otpValue.length !== 6) {
+      setError('Пожалуйста, введите 6-значный код');
       return;
     }
-    
+
     onSubmit(otpValue);
   };
 
   const handleResendCode = async () => {
     if (!canResend || resendLoading) return;
-    
+
     try {
       // Reset timer and resend flag
       setTimer(60);
       setCanResend(false);
-      
+
       // Вызываем функцию повторной отправки OTP из store
       await resendOtp();
-      
+
       // Clear inputs
-      setOtp(['', '', '', '']);
+      setOtp(['', '', '', '', '', '']);
       inputRefs[0].current?.focus();
     } catch (error) {
       console.error('Failed to resend OTP:', error);
@@ -165,11 +167,8 @@ export const OtpVerification: React.FC<OtpVerificationProps> = ({
             <label className="block text-base font-medium text-gray-700 dark:text-gray-200">
               Введите код из СМС
             </label>
-            <div className="text-sm text-gray-500 dark:text-gray-400">
-              Для демо: <span className="font-medium text-indigo-600 dark:text-indigo-400">1234</span>
-            </div>
           </div>
-          
+
           <div className="flex justify-between gap-3">
             {otp.map((digit, index) => (
               <div key={index} className="relative w-full">
@@ -177,13 +176,13 @@ export const OtpVerification: React.FC<OtpVerificationProps> = ({
                   ref={inputRefs[index]}
                   type="text"
                   inputMode="numeric"
-                  maxLength={4}
+                  maxLength={6}
                   value={digit}
                   onChange={(e) => handleChange(index, e.target.value)}
                   onKeyDown={(e) => handleKeyDown(index, e)}
                   className="w-full h-16 text-center text-2xl font-bold border-2 border-gray-300 dark:border-gray-700 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-800 dark:text-white transition-all duration-200 animate-borderPulse"
                 />
-                {index < 3 && (
+                {index < 5 && (
                   <div className="absolute top-1/2 -right-2 transform -translate-y-1/2 text-gray-400 pointer-events-none">
                     -
                   </div>

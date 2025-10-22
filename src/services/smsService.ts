@@ -71,7 +71,7 @@ export interface OtpCode {
 export class SmsService {
   private static smsCollection = collection(firestore, 'sms_messages');
   private static otpCollection = collection(firestore, 'otp_codes');
-  private static KAZINFOTEH_API_URL = 'https://so.kazinfoteh.org/api/sms/send';
+  private static BACKEND_API_URL = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:3001';
   private static OTP_EXPIRY_MINUTES = 5;
   private static MAX_OTP_ATTEMPTS = 3;
 
@@ -214,10 +214,10 @@ export class SmsService {
   }
 
   /**
-   * Отправка SMS через Kazinfoteh API (новый JSON API)
+   * Отправка SMS через наш Backend API (который проксирует запрос к Kazinfoteh)
    * @private
    */
-  private static async sendViaKazinfoteh(
+  private static async sendViaBackend(
     phone: string,
     message: string
   ): Promise<{
@@ -226,56 +226,58 @@ export class SmsService {
     error?: string
   }> {
     try {
-      const username = import.meta.env.VITE_KAZINFOTEH_USERNAME;
-      const password = import.meta.env.VITE_KAZINFOTEH_PASSWORD;
       const originator = import.meta.env.VITE_KAZINFOTEH_ORIGINATOR || 'KiT_Notify';
 
-      if (!username || !password) {
-        return { success: false, error: 'Kazinfoteh credentials не найдены' };
-      }
-
-      // Формируем Basic Auth токен
-      const authToken = btoa(`${username}:${password}`);
-
-      // Формируем тело запроса согласно новому API
-      const requestBody: KazinfotehSendRequest = {
-        from: originator,
-        to: phone.replace('+', ''),  // Убираем + из номера
-        text: message,
-        prioritet: 0  // Обычный приоритет
-      };
-
-      console.log('[SMS] 📤 Отправка запроса к Kazinfoteh API:', {
-        url: this.KAZINFOTEH_API_URL,
-        to: requestBody.to,
-        from: requestBody.from
+      console.log('[SMS] 📤 Отправка запроса к Backend API:', {
+        url: `${this.BACKEND_API_URL}/api/sms/send`,
+        to: phone,
+        from: originator
       });
 
-      const response = await fetch(this.KAZINFOTEH_API_URL, {
+      const response = await fetch(`${this.BACKEND_API_URL}/api/sms/send`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Basic ${authToken}`
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify({
+          phone: phone,
+          message: message,
+          originator: originator
+        })
       });
 
       // Обрабатываем JSON ответ
       const responseData = await response.json();
 
       // Проверяем успешность ответа
-      if (!response.ok) {
-        const errorResponse = responseData as KazinfotehErrorResponse;
-        console.error('[SMS] ❌ Ошибка API:', errorResponse);
+      if (!response.ok || !responseData.success) {
+        console.error('[SMS] ❌ Ошибка Backend API:', responseData);
         return {
           success: false,
-          error: `[${errorResponse.error_code}] ${errorResponse.error_message}`
+          error: responseData.error?.message || 'Ошибка при отправке SMS'
         };
       }
 
-      const successResponse = responseData as KazinfotehSuccessResponse;
+      // Преобразуем ответ backend в формат KazinfotehSuccessResponse
+      const backendData = responseData.data;
+      const successResponse: KazinfotehSuccessResponse = {
+        message_id: backendData.messageId,
+        bulk_id: backendData.bulkId,
+        status: backendData.status,
+        to: backendData.to,
+        sender: backendData.sender,
+        text: backendData.text,
+        sent_at: backendData.sentAt,
+        done_at: backendData.doneAt,
+        sms_count: backendData.smsCount?.toString() || '1',
+        priority: backendData.priority?.toString() || '0',
+        mnc: backendData.mnc || '1',
+        extra_id: null,
+        callback_data: null,
+        err: backendData.error || null
+      };
 
-      console.log('[SMS] ✅ Успешный ответ от API:', {
+      console.log('[SMS] ✅ Успешный ответ от Backend API:', {
         message_id: successResponse.message_id,
         status: successResponse.status,
         sms_count: successResponse.sms_count,
@@ -287,7 +289,7 @@ export class SmsService {
         data: successResponse
       };
     } catch (error) {
-      console.error('[SMS] ❌ Исключение при отправке:', error);
+      console.error('[SMS] ❌ Исключение при отправке через Backend:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Неизвестная ошибка'
@@ -330,9 +332,9 @@ export class SmsService {
 
       const docRef = await addDoc(this.smsCollection, smsData);
 
-      // Отправляем через Kazinfoteh API
-      console.log('[SMS] 📤 Отправка через Kazinfoteh API...');
-      const result = await this.sendViaKazinfoteh(formattedPhone, message);
+      // Отправляем через наш Backend API
+      console.log('[SMS] 📤 Отправка через Backend API...');
+      const result = await this.sendViaBackend(formattedPhone, message);
 
       if (result.success && result.data) {
         const apiData = result.data;
@@ -342,16 +344,22 @@ export class SmsService {
         // Обновляем запись с данными из API
         const { updateDoc } = await import('firebase/firestore');
         const smsDoc = doc(this.smsCollection, docRef.id);
-        await updateDoc(smsDoc, {
+
+        // Создаем объект обновления, исключая undefined значения
+        const updateData: any = {
           status: apiData.status,           // Актуальный статус из API
           messageId: apiData.message_id,    // ID сообщения из API
-          bulkId: apiData.bulk_id,          // ID рассылки
           smsCount: parseInt(apiData.sms_count), // Количество SMS частей
           mnc: apiData.mnc,                 // Код оператора
-          sentAt: apiData.sent_at,          // Время отправки из API
-          doneAt: apiData.done_at,          // Время доставки (если есть)
-          error: apiData.err                // Ошибка (если есть)
-        });
+          sentAt: apiData.sent_at           // Время отправки из API
+        };
+
+        // Добавляем опциональные поля только если они определены
+        if (apiData.bulk_id !== undefined) updateData.bulkId = apiData.bulk_id;
+        if (apiData.done_at !== undefined) updateData.doneAt = apiData.done_at;
+        if (apiData.err !== undefined) updateData.error = apiData.err;
+
+        await updateDoc(smsDoc, updateData);
 
         return true;
       }

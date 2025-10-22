@@ -77,7 +77,6 @@ export const ClientDashboardPage: React.FC = () => {
                       alt="Kelisim Logo"
                       className="h-8 w-auto mr-2"
                     />
-                    <span className="font-bold text-xl text-indigo-600 dark:text-indigo-400 hidden sm:inline-block">Kelisim<span className="text-indigo-800 dark:text-indigo-300">.bar</span></span>
                   </motion.div>
                 </Link>
               </div>

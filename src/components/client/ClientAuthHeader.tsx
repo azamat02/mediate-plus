@@ -30,14 +30,6 @@ export const ClientAuthHeader: React.FC = () => {
                   alt="Kelisim Logo"
                   className="h-8 w-auto"
                 />
-                <motion.span
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.2, duration: 0.3 }}
-                  className="ml-2 font-bold text-lg text-indigo-600 dark:text-indigo-400"
-                >
-                  Kelisim<span className="text-indigo-800 dark:text-indigo-300">.bar</span>
-                </motion.span>
               </motion.div>
             </Link>
           </div>
